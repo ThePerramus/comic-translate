@@ -363,11 +363,15 @@ class ImageViewer(QGraphicsView):
         self.setPhoto(pixmap, fit=fit)
 
     def clear_scene(self):
-        self.webtoon_manager.clear() 
+        self.webtoon_manager.clear()
         self._scene.clear()
         self.rectangles.clear()
         self.text_items.clear()
         self.selected_rect = None
+        # scene.clear() just deleted the hover-preview item (if any); drop our
+        # reference too or the next update_hover_preview() call would touch an
+        # already-deleted C++ object.
+        self.drawing_manager.hover_preview_item = None
         self.photo = QGraphicsPixmapItem()
         self.photo.setShapeMode(QGraphicsPixmapItem.BoundingRectShape)
         self._scene.addItem(self.photo)
