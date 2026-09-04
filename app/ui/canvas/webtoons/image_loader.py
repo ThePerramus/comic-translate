@@ -530,7 +530,10 @@ class LazyImageLoader:
             
             page_scene_bounds = QRectF(page_scene_left, page_scene_top, pixmap.width(), page_height)
             
-            for item in self._scene.items():
+            # scene.items() returns items topmost-first; walk bottom-to-top so
+            # older overlapping patches don't get drawn last and wrongly paint
+            # over newer ones.
+            for item in reversed(self._scene.items()):
                 if isinstance(item, QGraphicsPixmapItem) and item != page_item:
                     # Check if this is a patch item (has the hash key data)
                     if item.data(0) is not None:  # HASH_KEY = 0 from PatchCommandBase

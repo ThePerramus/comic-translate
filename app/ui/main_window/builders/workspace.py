@@ -338,9 +338,27 @@ class WorkspaceMixin:
         self.clear_brush_strokes_button = self.create_tool_button(svg="clear-outlined.svg")
         self.clear_brush_strokes_button.setToolTip(self.tr("Remove all the brush strokes on the Image"))
 
+        self.eyedropper_button = self.create_tool_button(svg="eyedropper.svg", checkable=True)
+        self.eyedropper_button.setToolTip(self.tr("Pick a Color from the Image"))
+        self.eyedropper_button.clicked.connect(self.toggle_eyedropper_tool)
+        self.tool_buttons["eyedropper"] = self.eyedropper_button
+
+        self.pencil_button = self.create_tool_button(svg="edit_fill.svg", checkable=True)
+        self.pencil_button.setToolTip(self.tr("Draw with the Picked Color to Manually Clean the Image"))
+        self.pencil_button.clicked.connect(self.toggle_pencil_tool)
+        self.tool_buttons["pencil"] = self.pencil_button
+
+        self.patch_eraser_button = self.create_tool_button(svg="patch-eraser.svg", checkable=True)
+        self.patch_eraser_button.setToolTip(self.tr("Erase Part of an Inpainted Patch, Revealing What's Underneath"))
+        self.patch_eraser_button.clicked.connect(self.toggle_patch_eraser_tool)
+        self.tool_buttons["patch_eraser"] = self.patch_eraser_button
+
         inp_tools_lay.addWidget(self.brush_button)
         inp_tools_lay.addWidget(self.eraser_button)
         inp_tools_lay.addWidget(self.clear_brush_strokes_button)
+        inp_tools_lay.addWidget(self.eyedropper_button)
+        inp_tools_lay.addWidget(self.pencil_button)
+        inp_tools_lay.addWidget(self.patch_eraser_button)
         inp_tools_lay.addStretch()
 
         self.brush_eraser_slider = MSlider()

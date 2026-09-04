@@ -25,6 +25,9 @@ class ImageViewer(QGraphicsView):
     connect_text_item =  Signal(TextBlockItem)
     page_changed = Signal(int)
     clear_text_edits = Signal()
+    color_picked = Signal()
+    pencil_patch_ready = Signal(dict)
+    patch_erase_ready = Signal(list)
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -52,6 +55,10 @@ class ImageViewer(QGraphicsView):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.viewport().setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
         self.viewport().grabGesture(Qt.GestureType.PanGesture)
+        # Needed so mouseMoveEvent fires on plain hover (no button held) - required
+        # for the brush/pencil/eraser hover-size preview to update before a stroke starts.
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
         # Default to NoDrag; only enable ScrollHandDrag when explicit 'pan' tool is active
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         
@@ -150,15 +157,24 @@ class ImageViewer(QGraphicsView):
 
     def set_tool(self, tool: str):
         self.current_tool = tool
+        if tool not in ['brush', 'eraser', 'pencil', 'patch_eraser']:
+            self.drawing_manager.hide_hover_preview()
         if tool == 'pan':
             self.setDragMode(QGraphicsView.ScrollHandDrag)
-        elif tool in ['brush', 'eraser']:
+        elif tool in ['brush', 'eraser', 'pencil', 'patch_eraser']:
             self.setDragMode(QGraphicsView.NoDrag)
             if tool == 'brush':
                 cursor = self.drawing_manager.brush_cursor
+            elif tool == 'eraser':
+                cursor = self.drawing_manager.eraser_cursor
+            elif tool == 'pencil':
+                cursor = self.drawing_manager.pencil_cursor
             else:
-                cursor =  self.drawing_manager.eraser_cursor
+                cursor = self.drawing_manager.patch_eraser_cursor
             self.setCursor(cursor)
+        elif tool == 'eyedropper':
+            self.setDragMode(QGraphicsView.NoDrag)
+            self.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self.setDragMode(QGraphicsView.NoDrag)
 
@@ -200,6 +216,10 @@ class ImageViewer(QGraphicsView):
     def viewportEvent(self, event):
         return self.event_handler.handle_viewport_event(event)
 
+    def leaveEvent(self, event):
+        self.drawing_manager.hide_hover_preview()
+        super().leaveEvent(event)
+
     def set_br_er_size(self, size, scaled_size):
         if self.current_tool == 'brush':
             self.drawing_manager.set_brush_size(size, scaled_size)
@@ -207,6 +227,12 @@ class ImageViewer(QGraphicsView):
         elif self.current_tool == 'eraser':
             self.drawing_manager.set_eraser_size(size, scaled_size)
             self.setCursor(self.drawing_manager.eraser_cursor)
+        elif self.current_tool == 'pencil':
+            self.drawing_manager.set_pencil_size(size, scaled_size)
+            self.setCursor(self.drawing_manager.pencil_cursor)
+        elif self.current_tool == 'patch_eraser':
+            self.drawing_manager.set_patch_eraser_size(size, scaled_size)
+            self.setCursor(self.drawing_manager.patch_eraser_cursor)
 
     def constrain_point(self, point: QPointF) -> QPointF:
         if self.webtoon_mode:
@@ -283,7 +309,11 @@ class ImageViewer(QGraphicsView):
             painter.drawPixmap(0, 0, pixmap)
             
             # Updated patch detection logic - patches are now added directly to scene
-            for item in self._scene.items():
+            # scene.items() returns items topmost-first, but we're painting them
+            # ourselves with plain drawPixmap calls (no z-order awareness), so we
+            # must walk them bottom-to-top or older overlapping patches would get
+            # drawn last and wrongly paint over newer ones.
+            for item in reversed(self._scene.items()):
                 if isinstance(item, QGraphicsPixmapItem) and item != self.photo:
                     # Check if this is a patch item (has the hash key data)
                     if item.data(0) is not None:  # HASH_KEY = 0 from PatchCommandBase
@@ -321,7 +351,9 @@ class ImageViewer(QGraphicsView):
     def qimage_from_array(self, img_array: np.ndarray):
         height, width, channel = img_array.shape
         bytes_per_line = 3 * width
-        qimage = QtGui.QImage(img_array.data, width, height, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
+        # .copy() so the QImage owns its buffer instead of aliasing img_array's
+        # memory, which callers aren't guaranteed to keep alive afterwards.
+        qimage = QtGui.QImage(img_array.data, width, height, bytes_per_line, QtGui.QImage.Format.Format_RGB888).copy()
         return qimage
 
     def display_image_array(self, img_array: np.ndarray, fit: bool = True):

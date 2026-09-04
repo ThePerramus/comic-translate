@@ -217,6 +217,9 @@ class ComicTranslate(ComicTranslateUI):
         self.image_viewer.rectangle_created.connect(self.rect_item_ctrl.handle_rectangle_creation)
         self.image_viewer.rectangle_deleted.connect(self.rect_item_ctrl.handle_rectangle_deletion)
         self.image_viewer.command_emitted.connect(self.push_command)
+        self.image_viewer.color_picked.connect(self.on_color_picked)
+        self.image_viewer.pencil_patch_ready.connect(lambda patch: self.apply_inpaint_patches([patch]))
+        self.image_viewer.patch_erase_ready.connect(self.apply_patch_erase)
         self.image_viewer.connect_rect_item.connect(self.rect_item_ctrl.connect_rect_item_signals)
         self.image_viewer.connect_text_item.connect(self.text_ctrl.connect_text_item_signals)
         self.image_viewer.page_changed.connect(self.webtoon_ctrl.on_page_changed)
@@ -310,6 +313,29 @@ class ComicTranslate(ComicTranslateUI):
 
     def connect_rect_item_signals(self, rect_item, force_reconnect: bool = False): return self.rect_item_ctrl.connect_rect_item_signals(rect_item, force_reconnect=force_reconnect)
     def apply_inpaint_patches(self, patches): return self.image_ctrl.apply_inpaint_patches(patches)
+
+    def apply_patch_erase(self, results: list):
+        """results: [{'hash': <existing patch hash>, 'new_image': <RGBA numpy array>}, ...]
+        from DrawingManager._commit_patch_erase. Resolves each hash against the
+        current page's registered patches and pushes one undoable PatchEraseCommand."""
+        if not self.image_files:
+            return
+        file_path = self.image_files[self.curr_img_idx]
+        existing = {p['hash']: p for p in self.image_patches.get(file_path, [])}
+
+        erased = []
+        for r in results:
+            old_patch = existing.get(r['hash'])
+            if old_patch is None:
+                continue
+            erased.append({'old_patch': old_patch, 'new_image': r['new_image']})
+
+        if not erased:
+            return
+
+        from app.ui.commands.inpaint import PatchEraseCommand
+        command = PatchEraseCommand(self, erased, file_path)
+        self.undo_group.activeStack().push(command)
     def render_settings(self): return self.text_ctrl.render_settings()
     def load_image(self, file_path: str) -> np.ndarray: return self.image_ctrl.load_image(file_path)
     def get_selected_page_paths(self) -> list[str]:

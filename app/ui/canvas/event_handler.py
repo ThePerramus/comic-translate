@@ -21,12 +21,16 @@ class EventHandler:
         scene_pos = self.viewer.mapToScene(event.position().toPoint())
         clicked_item = self._resolve_top_level_item(self.viewer.itemAt(event.pos()))
         ctrl_pressed = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
-        
+        drawing_tool_active = self._is_drawing_tool()
+
         # Delegate page change detection to the appropriate manager
         if self.viewer.webtoon_mode:
             self.viewer.webtoon_manager.update_page_on_click(scene_pos)
 
-        if isinstance(clicked_item, (TextBlockItem, MoveableRectItem)):
+        # While a drawing tool (brush/eraser/pencil/eyedropper) is active, clicks
+        # should always draw - never select/resize/rotate/drag an item underneath,
+        # even if that item was already selected from an earlier interaction.
+        if not drawing_tool_active and isinstance(clicked_item, (TextBlockItem, MoveableRectItem)):
             if isinstance(clicked_item, TextBlockItem):
                 if ctrl_pressed and not clicked_item.editing_mode:
                     if clicked_item.selected:
@@ -74,7 +78,7 @@ class EventHandler:
                 elif not clicked_item.selected:
                     self.viewer.select_rectangle(clicked_item)
         
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.LeftButton and not drawing_tool_active:
             # Order is important: check for handles, then drag, then general deselection
             if self._press_handle_resize(event, scene_pos): return
             if self._press_handle_rotation(event, scene_pos): return
@@ -95,9 +99,14 @@ class EventHandler:
             self._press_handle_pan(event)
             return
 
-        if self.viewer.current_tool in ['brush', 'eraser'] and self.viewer.hasPhoto():
+        if self.viewer.current_tool in ['brush', 'eraser', 'pencil', 'patch_eraser'] and self.viewer.hasPhoto():
             if self._is_on_image(scene_pos):
                 self.viewer.drawing_manager.start_stroke(scene_pos)
+
+        if self.viewer.current_tool == 'eyedropper' and self.viewer.hasPhoto():
+            if self._is_on_image(scene_pos):
+                self.viewer.drawing_manager.pick_color(scene_pos)
+                self.viewer.color_picked.emit()
 
         # Only pass to QGraphicsView for panning or tool-specific interactions, not our items
         scroll = self.viewer.dragMode() == QtWidgets.QGraphicsView.DragMode.ScrollHandDrag
@@ -106,15 +115,17 @@ class EventHandler:
     
     def handle_mouse_move(self, event: QtGui.QMouseEvent):
         scene_pos = self.viewer.mapToScene(event.position().toPoint())
+        drawing_tool_active = self._is_drawing_tool()
 
-        # Explicitly handle dragging our items first
-        if self._move_handle_drag(event, scene_pos):
-            self.last_scene_pos = scene_pos
-            return
+        if not drawing_tool_active:
+            # Explicitly handle dragging our items first
+            if self._move_handle_drag(event, scene_pos):
+                self.last_scene_pos = scene_pos
+                return
 
-        # Then handle other interactions like resize/rotate hover
-        if self._move_handle_item_interaction(scene_pos): 
-            return
+            # Then handle other interactions like resize/rotate hover
+            if self._move_handle_item_interaction(scene_pos):
+                return
 
         # Let QGraphicsView handle its default behaviors (like ScrollHandDrag)
         QtWidgets.QGraphicsView.mouseMoveEvent(self.viewer, event)
@@ -123,10 +134,16 @@ class EventHandler:
             self._move_handle_pan(event)
             return
         
-        if self.viewer.current_tool in ['brush', 'eraser'] and self.viewer.drawing_manager.current_path:
+        if self.viewer.current_tool in ['brush', 'eraser', 'pencil', 'patch_eraser'] and self.viewer.drawing_manager.current_path:
             if self._is_on_image(scene_pos):
                 self.viewer.drawing_manager.continue_stroke(scene_pos)
-        
+
+        if self.viewer.current_tool in ['brush', 'eraser', 'pencil', 'patch_eraser']:
+            if self._is_on_image(scene_pos):
+                self.viewer.drawing_manager.update_hover_preview(scene_pos, self.viewer.current_tool)
+            else:
+                self.viewer.drawing_manager.hide_hover_preview()
+
         if self.viewer.current_tool == 'box':
             self._move_handle_box_resize(scene_pos)
 
@@ -135,7 +152,7 @@ class EventHandler:
     def handle_mouse_release(self, event: QtGui.QMouseEvent):
         interaction_finished = False # Flag to track if we handled the event
 
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.LeftButton and not self._is_drawing_tool():
             interaction_finished = self._release_handle_item_interaction()
 
             # If a custom drag, resize, or rotate was just finished, stop the event here
@@ -162,7 +179,7 @@ class EventHandler:
             self._release_handle_pan()
             return
         
-        if self.viewer.current_tool in ['brush', 'eraser']:
+        if self.viewer.current_tool in ['brush', 'eraser', 'pencil', 'patch_eraser']:
             self.viewer.drawing_manager.end_stroke()
             
         if self.viewer.current_tool == 'box':
@@ -210,7 +227,12 @@ class EventHandler:
             return self._handle_pinch_gesture(pinch)
         return False
 
-    # Event Handler Helpers 
+    # Event Handler Helpers
+
+    def _is_drawing_tool(self) -> bool:
+        """True while brush/eraser/pencil/eyedropper is active, so clicks always
+        draw instead of selecting/resizing/rotating/dragging an item underneath."""
+        return self.viewer.current_tool in ('brush', 'eraser', 'pencil', 'eyedropper', 'patch_eraser')
 
     def _resolve_top_level_item(self, item):
         """Walk up the parent chain to find a top-level TextBlockItem, MoveableRectItem, or QGraphicsPathItem."""

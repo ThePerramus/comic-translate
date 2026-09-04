@@ -35,6 +35,35 @@ class ToolStateMixin:
         else:
             self.set_tool(None)
 
+    def toggle_eyedropper_tool(self):
+        if self.eyedropper_button.isChecked():
+            self.set_tool("eyedropper")
+        else:
+            self.set_tool(None)
+
+    def toggle_pencil_tool(self):
+        if self.pencil_button.isChecked():
+            self.set_tool("pencil")
+            # Pencil size is shared with the brush/eraser slider: force it back
+            # in sync in case brush/eraser silently changed the slider's value.
+            self.set_brush_eraser_size(self.brush_eraser_slider.value())
+        else:
+            self.set_tool(None)
+
+    def toggle_patch_eraser_tool(self):
+        if self.patch_eraser_button.isChecked():
+            self.set_tool("patch_eraser")
+            # Size is shared with the brush/eraser/pencil slider: force it back in
+            # sync in case another tool silently changed the slider's value.
+            self.set_brush_eraser_size(self.brush_eraser_slider.value())
+        else:
+            self.set_tool(None)
+
+    def on_color_picked(self):
+        """Called after the eyedropper samples a color: switch straight to the pencil."""
+        self.set_tool("pencil")
+        self.set_brush_eraser_size(self.brush_eraser_slider.value())
+
     def set_slider_size(self, size: int):
         self.brush_eraser_slider.blockSignals(True)
         self.brush_eraser_slider.setValue(size)
@@ -65,9 +94,15 @@ class ToolStateMixin:
             self.image_viewer.brush_size = size
         elif current_tool == "eraser":
             self.image_viewer.eraser_size = size
+        elif current_tool == "pencil":
+            self.image_viewer.drawing_manager.set_pencil_size(size, size)
+        elif current_tool == "patch_eraser":
+            self.image_viewer.drawing_manager.set_patch_eraser_size(size, size)
         else:
             self.image_viewer.brush_size = size
             self.image_viewer.eraser_size = size
+            self.image_viewer.drawing_manager.set_pencil_size(size, size)
+            self.image_viewer.drawing_manager.set_patch_eraser_size(size, size)
 
         if self.image_viewer.hasPhoto():
             image = self.image_viewer.get_image_array()
@@ -75,11 +110,13 @@ class ToolStateMixin:
                 h, w = image.shape[:2]
                 scaled_size = self.scale_size(size, w, h)
 
-                if current_tool in {"brush", "eraser"}:
+                if current_tool in {"brush", "eraser", "pencil", "patch_eraser"}:
                     self.image_viewer.set_br_er_size(size, scaled_size)
                 else:
                     self.image_viewer.drawing_manager.set_brush_size(size, scaled_size)
                     self.image_viewer.drawing_manager.set_eraser_size(size, scaled_size)
+                    self.image_viewer.drawing_manager.set_pencil_size(size, scaled_size)
+                    self.image_viewer.drawing_manager.set_patch_eraser_size(size, scaled_size)
 
     def scale_size(self, base_size, image_width, image_height):
         image_diagonal = (image_width**2 + image_height**2) ** 0.5

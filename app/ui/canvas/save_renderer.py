@@ -2,6 +2,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import imkit as imk
 import numpy as np
 from app.path_materialization import ensure_path_materialized
+from app.ui.commands.base import _load_patch_image_rgba
 from .text_item import TextBlockItem
 from .text.text_item_properties import TextItemProperties
 
@@ -22,10 +23,16 @@ class ImageSaveRenderer:
         self.scene.addItem(self.pixmap_item)
 
 
-    def img_array_to_qimage(self, rgb_img: np.ndarray) -> QtGui.QImage:
-        height, width, channel = rgb_img.shape
+    def img_array_to_qimage(self, img: np.ndarray) -> QtGui.QImage:
+        height, width, channel = img.shape
         bytes_per_line = channel * width
-        return QtGui.QImage(rgb_img.data, width, height, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
+        # RGBA patches carry real holes punched by the patch eraser; RGB stays for
+        # the always-opaque base image. .copy() so the QImage owns its buffer
+        # instead of aliasing img's memory, which apply_patches() reassigns/frees
+        # on every loop iteration - without this, earlier patches' pixmaps can get
+        # corrupted once that memory is reused.
+        fmt = QtGui.QImage.Format.Format_RGBA8888 if channel == 4 else QtGui.QImage.Format.Format_RGB888
+        return QtGui.QImage(img.data, width, height, bytes_per_line, fmt).copy()
 
     def add_state_to_image(self, state, page_idx=None, main_page=None):
         # Add spanning text items if we have the context to do so
@@ -244,9 +251,11 @@ class ImageSaveRenderer:
             if 'png_path' in patch:
                 patch_path = patch['png_path']
                 ensure_path_materialized(patch_path)
-                patch_image = imk.read_image(patch_path)
+                # Preserve real alpha (holes punched by the patch eraser) instead
+                # of imk.read_image's forced RGB conversion.
+                patch_image = _load_patch_image_rgba(png_path=patch_path)
             else:
-                # Handle direct image data (expected to be RGB format)
+                # Handle direct image data (RGB or RGBA)
                 patch_image = patch['image']
             
             # Convert patch to QImage

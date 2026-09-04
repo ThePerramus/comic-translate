@@ -7,7 +7,25 @@ from PySide6.QtWidgets import QGraphicsPathItem
 from PySide6.QtCore import QRectF, QPointF
 from PySide6 import QtGui, QtWidgets
 import imkit as imk
+from PIL import Image
 from app.path_materialization import ensure_path_materialized
+
+
+def _load_patch_image_rgba(png_path: str = None, image: np.ndarray = None) -> np.ndarray:
+    """Loads a patch's pixels as RGBA, preserving real transparency (e.g. from the
+    patch eraser) instead of imk.read_image's forced RGB conversion. Legacy/opaque
+    patches (3-channel) get a full-255 alpha channel added."""
+    if png_path is not None:
+        im = Image.open(png_path)
+        if im.mode != "RGBA":
+            im = im.convert("RGBA")
+        return np.array(im)
+
+    if image.shape[2] == 4:
+        return image
+    h, w = image.shape[:2]
+    alpha = np.full((h, w, 1), 255, dtype=image.dtype)
+    return np.concatenate([image, alpha], axis=2)
 
 from ..canvas.text.text_item_properties import TextItemProperties
 from modules.utils.textblock import TextBlock
@@ -239,13 +257,18 @@ class PatchCommandBase:
         x, y, w, h = properties['bbox']
         if 'png_path' in properties:
             ensure_path_materialized(properties['png_path'])
-            img = imk.read_image(properties['png_path'])
+            img = _load_patch_image_rgba(png_path=properties['png_path'])
         else:
-            img = properties['image']
+            img = _load_patch_image_rgba(image=properties['image'])
         if img is None:
             return None
+        # .copy() forces QImage to own its pixel buffer instead of aliasing img's
+        # memory, which would otherwise be freed as soon as img goes out of scope
+        # and corrupt this pixmap once that memory gets reused (use-after-free).
+        # RGBA (not RGB) so a patch eraser can punch real transparent holes that
+        # let whatever is underneath (an older patch, or the original image) show through.
         qimg = QtGui.QImage(img.data, w, h, img.strides[0],
-                            QtGui.QImage.Format.Format_RGB888)
+                            QtGui.QImage.Format.Format_RGBA8888).copy()
         pix  = QtGui.QPixmap.fromImage(qimg)
         item = QtWidgets.QGraphicsPixmapItem(pix)
         
@@ -260,6 +283,7 @@ class PatchCommandBase:
         item.setData(PatchCommandBase.HASH_KEY, properties['hash'])
         viewer._scene.addItem(item)
         viewer._scene.update()
+        viewer.viewport().update()
         return item
 
     @staticmethod

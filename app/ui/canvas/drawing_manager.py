@@ -1,8 +1,9 @@
+import math
 import numpy as np
 from typing import List, Dict
 
 from PySide6 import QtWidgets, QtCore, QtGui
-from PySide6.QtWidgets import QGraphicsPathItem
+from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsPixmapItem
 from PySide6.QtCore import Qt, QPointF
 from PySide6.QtGui import QColor, QBrush, QPen, QPainterPath, QCursor, QPixmap, QImage, QPainter
 
@@ -25,13 +26,32 @@ class DrawingManager:
         self.brush_color = QColor(255, 0, 0, 100)
         self.brush_size = 25
         self.eraser_size = 25
-        
+
+        # Pencil: paints an opaque flat color directly onto the image, size shared
+        # with the brush/eraser slider. Color persists across pages (never reset).
+        self.pencil_color = QColor(255, 255, 255)
+        self.pencil_size = 25
+        self._pencil_scaled_size = 25
+
+        # Patch eraser: punches a transparent hole in whichever inpaint patch is
+        # topmost under the stroke, revealing an older patch or the original image
+        # underneath. Size shared with the same brush/eraser/pencil slider.
+        self.patch_eraser_size = 25
+        self._patch_eraser_scaled_size = 25
+
         self.brush_cursor = self.create_inpaint_cursor('brush', self.brush_size)
         self.eraser_cursor = self.create_inpaint_cursor('eraser', self.eraser_size)
+        self.pencil_cursor = self.create_inpaint_cursor('pencil', self.pencil_size)
+        self.patch_eraser_cursor = self.create_inpaint_cursor('patch_eraser', self.patch_eraser_size)
 
         self.current_path = None
         self.current_path_item = None
-        
+
+        # Live hover preview: a scene-space circle (not an OS cursor) so it scales
+        # correctly with zoom and always shows exactly where/how big the next
+        # stroke will be, even before you start dragging.
+        self.hover_preview_item = None
+
         self.before_erase_state = []
         self.after_erase_state = []
 
@@ -44,11 +64,23 @@ class DrawingManager:
         self.current_path.moveTo(scene_pos)
 
         if self.viewer.current_tool == 'brush':
-            pen = QPen(self.brush_color, self.brush_size, 
+            pen = QPen(self.brush_color, self.brush_size,
                        Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
             self.current_path_item = self._scene.addPath(self.current_path, pen)
-            self.current_path_item.setZValue(0.8)  
-        
+            self.current_path_item.setZValue(0.8)
+
+        elif self.viewer.current_tool == 'pencil':
+            pen = QPen(self.pencil_color, self.pencil_size,
+                       Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            self.current_path_item = self._scene.addPath(self.current_path, pen)
+            self.current_path_item.setZValue(0.9)
+
+        elif self.viewer.current_tool == 'patch_eraser':
+            pen = QPen(QColor(220, 40, 40, 140), self.patch_eraser_size,
+                       Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            self.current_path_item = self._scene.addPath(self.current_path, pen)
+            self.current_path_item.setZValue(0.9)
+
         elif self.viewer.current_tool == 'eraser':
             # Capture the current state before starting erase operation
             self.before_erase_state = []
@@ -73,7 +105,7 @@ class DrawingManager:
             return
 
         self.current_path.lineTo(scene_pos)
-        if self.viewer.current_tool == 'brush' and self.current_path_item:
+        if self.viewer.current_tool in ('brush', 'pencil', 'patch_eraser') and self.current_path_item:
             self.current_path_item.setPath(self.current_path)
         elif self.viewer.current_tool == 'eraser':
             self.erase_at(scene_pos)
@@ -84,6 +116,10 @@ class DrawingManager:
             if self.viewer.current_tool == 'brush':
                 command = BrushStrokeCommand(self.viewer, self.current_path_item)
                 self.viewer.command_emitted.emit(command)
+            elif self.viewer.current_tool == 'pencil':
+                self._commit_pencil_stroke()
+            elif self.viewer.current_tool == 'patch_eraser':
+                self._commit_patch_erase()
 
         if self.viewer.current_tool == 'eraser':
             # Capture the current state after erase operation
@@ -187,6 +223,185 @@ class DrawingManager:
         self.eraser_size = size
         self.eraser_cursor = self.create_inpaint_cursor("eraser", scaled_size)
 
+    def set_pencil_size(self, size, scaled_size):
+        self.pencil_size = size
+        self._pencil_scaled_size = scaled_size
+        self.pencil_cursor = self.create_inpaint_cursor("pencil", scaled_size)
+
+    def set_pencil_color(self, color: QColor):
+        self.pencil_color = color
+        self.pencil_cursor = self.create_inpaint_cursor("pencil", self._pencil_scaled_size)
+
+    def _commit_pencil_stroke(self):
+        """Bakes the just-drawn pencil path into the actual image as a patch,
+        the same way an automatic inpaint result is applied (undo/redo included)."""
+        item = self.current_path_item
+        if item is None:
+            return
+
+        if self.viewer.webtoon_mode or not self.viewer.hasPhoto():
+            self._scene.removeItem(item)
+            return
+
+        path = item.path()
+        pen_width = item.pen().widthF()
+        stroke_rect = path.boundingRect().adjusted(-pen_width, -pen_width, pen_width, pen_width)
+
+        image_rect = self.viewer.photo.boundingRect()
+        img_w, img_h = int(image_rect.width()), int(image_rect.height())
+
+        x1 = max(0, int(math.floor(stroke_rect.left())))
+        y1 = max(0, int(math.floor(stroke_rect.top())))
+        x2 = min(img_w, int(math.ceil(stroke_rect.right())))
+        y2 = min(img_h, int(math.ceil(stroke_rect.bottom())))
+        w, h = x2 - x1, y2 - y1
+
+        if w <= 0 or h <= 0:
+            self._scene.removeItem(item)
+            return
+
+        # Rasterize the exact stroke path (same pen) into a small local mask
+        mask_qimg = QImage(w, h, QImage.Format_Grayscale8)
+        mask_qimg.fill(0)
+        mask_painter = QPainter(mask_qimg)
+        mask_painter.translate(-x1, -y1)
+        mask_pen = QPen(QColor(255, 255, 255), pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        mask_painter.setPen(mask_pen)
+        mask_painter.setBrush(Qt.NoBrush)
+        mask_painter.drawPath(path)
+        mask_painter.end()
+
+        mask_ptr = mask_qimg.constBits()
+        mask = np.array(mask_ptr).reshape(mask_qimg.height(), mask_qimg.bytesPerLine())[:, :w]
+
+        self._scene.removeItem(item)
+
+        base_rgb = self.viewer.get_image_array(include_patches=True)
+        if base_rgb is None:
+            return
+
+        patch_rgb = base_rgb[y1:y2, x1:x2].copy()
+        if patch_rgb.shape[:2] != (h, w):
+            return
+
+        color = self.pencil_color
+        patch_rgb[mask == 255] = (color.red(), color.green(), color.blue())
+
+        patch = {'bbox': [x1, y1, w, h], 'image': patch_rgb}
+        self.viewer.pencil_patch_ready.emit(patch)
+
+    def set_patch_eraser_size(self, size, scaled_size):
+        self.patch_eraser_size = size
+        self._patch_eraser_scaled_size = scaled_size
+        self.patch_eraser_cursor = self.create_inpaint_cursor("patch_eraser", scaled_size)
+
+    def _commit_patch_erase(self):
+        """Punches a hole in whichever inpaint patch is topmost under the stroke,
+        one layer at a time, so an older patch (or the original image) shows
+        through - the inverse of the pencil."""
+        item = self.current_path_item
+        if item is None:
+            return
+
+        if self.viewer.webtoon_mode or not self.viewer.hasPhoto():
+            self._scene.removeItem(item)
+            return
+
+        path = item.path()
+        pen_width = item.pen().widthF()
+        stroke_rect = path.boundingRect().adjusted(-pen_width, -pen_width, pen_width, pen_width)
+        self._scene.removeItem(item)
+
+        image_rect = self.viewer.photo.boundingRect()
+        img_w, img_h = int(image_rect.width()), int(image_rect.height())
+
+        ex1 = max(0, int(math.floor(stroke_rect.left())))
+        ey1 = max(0, int(math.floor(stroke_rect.top())))
+        ex2 = min(img_w, int(math.ceil(stroke_rect.right())))
+        ey2 = min(img_h, int(math.ceil(stroke_rect.bottom())))
+        ew, eh = ex2 - ex1, ey2 - ey1
+        if ew <= 0 or eh <= 0:
+            return
+
+        mask_qimg = QImage(ew, eh, QImage.Format_Grayscale8)
+        mask_qimg.fill(0)
+        mask_painter = QPainter(mask_qimg)
+        mask_painter.translate(-ex1, -ey1)
+        mask_pen = QPen(QColor(255, 255, 255), pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        mask_painter.setPen(mask_pen)
+        mask_painter.setBrush(Qt.NoBrush)
+        mask_painter.drawPath(path)
+        mask_painter.end()
+        mask_ptr = mask_qimg.constBits()
+        erase_mask = np.array(mask_ptr).reshape(mask_qimg.height(), mask_qimg.bytesPerLine())[:, :ew] == 255
+
+        remaining = erase_mask.copy()
+        results = []
+
+        # scene.items() returns topmost-first, which is exactly the peel order we
+        # want: erase from the highest patch actually covering each pixel first,
+        # and only fall through to an older one where the top patch was already
+        # transparent (or doesn't reach there).
+        for it in self._scene.items():
+            if not remaining.any():
+                break
+            if not isinstance(it, QGraphicsPixmapItem) or it is self.viewer.photo:
+                continue
+            patch_hash = it.data(0)  # PatchCommandBase.HASH_KEY
+            if patch_hash is None:
+                continue
+
+            pw, ph = it.pixmap().width(), it.pixmap().height()
+            ppos = it.pos()
+            px1, py1 = int(ppos.x()), int(ppos.y())
+            px2, py2 = px1 + pw, py1 + ph
+
+            ox1, oy1 = max(ex1, px1), max(ey1, py1)
+            ox2, oy2 = min(ex2, px2), min(ey2, py2)
+            if ox2 <= ox1 or oy2 <= oy1:
+                continue
+
+            qimg = it.pixmap().toImage().convertToFormat(QImage.Format.Format_RGBA8888)
+            buf = np.array(qimg.constBits()).reshape(qimg.height(), qimg.bytesPerLine())[:, :pw * 4].reshape(ph, pw, 4).copy()
+
+            lpx1, lpy1, lpx2, lpy2 = ox1 - px1, oy1 - py1, ox2 - px1, oy2 - py1
+            lex1, ley1, lex2, ley2 = ox1 - ex1, oy1 - ey1, ox2 - ex1, oy2 - ey1
+
+            patch_alpha_region = buf[lpy1:lpy2, lpx1:lpx2, 3]
+            remaining_region = remaining[ley1:ley2, lex1:lex2]
+
+            was_opaque = patch_alpha_region > 0
+            hit = remaining_region & was_opaque
+            if hit.any():
+                patch_alpha_region[hit] = 0
+                results.append({'hash': patch_hash, 'new_image': buf})
+
+            # Whether or not we just erased it, this patch's opaque footprint is
+            # now resolved for this stroke; only its already-transparent pixels
+            # continue on to whatever patch is underneath.
+            remaining_region &= ~was_opaque
+
+        if results:
+            self.viewer.patch_erase_ready.emit(results)
+
+    def pick_color(self, scene_pos: QPointF):
+        """Samples the current on-screen color at scene_pos and stores it for the pencil tool."""
+        if self.viewer.webtoon_mode or not self.viewer.hasPhoto():
+            return None
+
+        image = self.viewer.get_image_array(include_patches=True)
+        if image is None:
+            return None
+
+        x, y = int(scene_pos.x()), int(scene_pos.y())
+        h, w = image.shape[:2]
+        if not (0 <= x < w and 0 <= y < h):
+            return None
+
+        r, g, b = (int(v) for v in image[y, x][:3])
+        self.set_pencil_color(QColor(r, g, b))
+        return self.pencil_color
+
     def create_inpaint_cursor(self, cursor_type, size):
         size = max(1, size)
         pixmap = QPixmap(size, size)
@@ -198,6 +413,12 @@ class DrawingManager:
         elif cursor_type == "eraser":
             painter.setBrush(QBrush(QColor(0, 0, 0, 0)))
             painter.setPen(QColor(0, 0, 0, 127))
+        elif cursor_type == "pencil":
+            painter.setBrush(QBrush(self.pencil_color))
+            painter.setPen(QColor(0, 0, 0, 180))
+        elif cursor_type == "patch_eraser":
+            painter.setBrush(QBrush(QColor(0, 0, 0, 0)))
+            painter.setPen(QColor(220, 40, 40, 200))
         else:
             painter.setBrush(QBrush(QColor(0, 0, 0, 127)))
             painter.setPen(Qt.PenStyle.NoPen)
@@ -205,6 +426,40 @@ class DrawingManager:
         painter.end()
         return QCursor(pixmap, size // 2, size // 2)
     
+    def update_hover_preview(self, scene_pos: QPointF, tool: str):
+        """Shows a scene-space circle at scene_pos sized to the active tool's
+        current brush/eraser/pencil size, so you can see exactly where and how
+        big the next stroke will be before you start dragging. Drawn in scene
+        coordinates (not as an OS cursor) so it scales correctly with zoom."""
+        sizes = {
+            'brush': self.brush_size,
+            'eraser': self.eraser_size,
+            'pencil': self.pencil_size,
+            'patch_eraser': self.patch_eraser_size,
+        }
+        if tool not in sizes or not self.viewer.hasPhoto():
+            self.hide_hover_preview()
+            return
+
+        size = max(1, sizes[tool])
+        radius = size / 2.0
+
+        if self.hover_preview_item is None:
+            self.hover_preview_item = self._scene.addEllipse(0, 0, size, size)
+            self.hover_preview_item.setZValue(1000)  # always drawn on top
+
+        pen = QPen(QColor(0, 0, 0, 220), 1)
+        pen.setCosmetic(True)  # outline stays a constant screen-thickness at any zoom
+        pen.setStyle(Qt.PenStyle.DashLine)
+        self.hover_preview_item.setPen(pen)
+        self.hover_preview_item.setBrush(Qt.NoBrush)
+        self.hover_preview_item.setRect(scene_pos.x() - radius, scene_pos.y() - radius, size, size)
+        self.hover_preview_item.setVisible(True)
+
+    def hide_hover_preview(self):
+        if self.hover_preview_item is not None:
+            self.hover_preview_item.setVisible(False)
+
     def save_brush_strokes(self) -> List[Dict]:
         strokes = []
         
