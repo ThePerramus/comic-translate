@@ -982,7 +982,10 @@ class ImageStateController:
             self.main.loaded_images.append(file_path)
             if len(self.main.loaded_images) > self.main.max_images_in_memory:
                 oldest_image = self.main.loaded_images.pop(0)
-                del self.main.image_data[oldest_image]
+                # loaded_images and image_data are restored somewhat independently
+                # when a project is reloaded, so they can end up out of sync - don't
+                # crash if the "oldest" entry was never (re)cached this session.
+                self.main.image_data.pop(oldest_image, None)
                 self.main.in_memory_history[oldest_image] = []
 
                 self.main.in_memory_patches.pop(oldest_image, None)
