@@ -721,6 +721,11 @@ class ImageStateController:
         self._show_page_skip_error_for_file(file_path)
 
     def navigate_images(self, direction: int):
+        # page_list is disabled while a project save is running in the background
+        # (it reads image_patches/image_states directly); the Left/Right shortcut
+        # bypasses the widget's own disabled-click guard, so check it explicitly.
+        if not self.main.page_list.isEnabled():
+            return
         if self.main.image_files:
             new_index = self.main.curr_img_idx + direction
             if 0 <= new_index < len(self.main.image_files):

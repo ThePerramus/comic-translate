@@ -1095,6 +1095,11 @@ class ProjectController:
         self.main.setWindowTitle(f"{os.path.basename(file_name)}[*]")
         self.main.loading.setVisible(True)
         self.main.disable_hbutton_group()
+        # The save runs on a background thread and reads image_patches/image_states
+        # directly; switching pages concurrently touches those same structures
+        # (patch preloading, cache eviction) from another thread, so block
+        # navigation until the save is done.
+        self.main.page_list.setEnabled(False)
         save_failed = {'value': False}
         save_start_revision = self.main._dirty_revision
 
@@ -1105,6 +1110,7 @@ class ProjectController:
             self.main.default_error_handler(error_tuple)
 
         def on_finished():
+            self.main.page_list.setEnabled(True)
             self.main.on_manual_finished()
             if not save_failed['value']:
                 # Close the old project's DB connection only after the save
