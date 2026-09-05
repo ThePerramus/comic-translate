@@ -364,14 +364,19 @@ class ImageViewer(QGraphicsView):
 
     def clear_scene(self):
         self.webtoon_manager.clear()
+        # Detach the hover-preview item ourselves before the bulk scene.clear()
+        # below deletes it out from under us. removeItem() just unparents it
+        # (the C++ object stays alive and valid), so dropping our reference
+        # afterwards runs normal Python/Qt cleanup on an item we fully own,
+        # instead of scene.clear() deleting it first and us holding a
+        # C++-already-deleted wrapper until this function later touches it.
+        if self.drawing_manager.hover_preview_item is not None:
+            self._scene.removeItem(self.drawing_manager.hover_preview_item)
+            self.drawing_manager.hover_preview_item = None
         self._scene.clear()
         self.rectangles.clear()
         self.text_items.clear()
         self.selected_rect = None
-        # scene.clear() just deleted the hover-preview item (if any); drop our
-        # reference too or the next update_hover_preview() call would touch an
-        # already-deleted C++ object.
-        self.drawing_manager.hover_preview_item = None
         self.photo = QGraphicsPixmapItem()
         self.photo.setShapeMode(QGraphicsPixmapItem.BoundingRectShape)
         self._scene.addItem(self.photo)

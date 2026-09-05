@@ -22,7 +22,11 @@ def _log_uncaught(exc_type, exc_value, exc_tb):
     _crash_log_file.flush()
     sys.__excepthook__(exc_type, exc_value, exc_tb)
 
+def _log_uncaught_thread(args):
+    _log_uncaught(args.exc_type, args.exc_value, args.exc_traceback)
+
 sys.excepthook = _log_uncaught
+threading.excepthook = _log_uncaught_thread
 
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtCore import QSettings, QTranslator, QLocale, \
@@ -32,6 +36,12 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 from app.ui.splash_screen import SplashScreen
 from modules.utils.runtime import configure_runtime
+
+# PySide6 installs its own sys.excepthook to route exceptions raised inside
+# Qt slots/virtual overrides back through Python; re-assert ours *after* that
+# import so a slot exception still lands in the crash log instead of only
+# whatever PySide's own default hook does with it.
+sys.excepthook = _log_uncaught
 
 
 def _extract_project_file(argv: list[str]) -> str | None:

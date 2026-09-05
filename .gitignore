@@ -24,3 +24,6 @@ demo_*.py
 benchmarks/
 
 scripts
+
+# Local crash diagnostics (faulthandler dumps), not project artifacts
+crash_logs/
