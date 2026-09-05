@@ -789,7 +789,7 @@ class ImageStateController:
                 return
             if saved['hash'] not in mem_hashes:
                 ensure_path_materialized(saved['png_path'])
-                rgb_img = imk.read_image(saved['png_path'])
+                rgb_img = _load_patch_image_rgba(png_path=saved['png_path'])
                 if rgb_img is not None:
                     loaded.append({
                         'bbox': saved['bbox'],

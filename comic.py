@@ -3,6 +3,27 @@ import logging
 import hashlib
 import json
 import threading
+import faulthandler
+import datetime
+
+_crash_log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'crash_logs')
+os.makedirs(_crash_log_dir, exist_ok=True)
+_crash_log_path = os.path.join(_crash_log_dir, 'crash_{}.log'.format(
+    datetime.datetime.now().strftime('%Y%m%d_%H%M%S')))
+_crash_log_file = open(_crash_log_path, 'w', encoding='utf-8', buffering=1)
+# Dumps the Python stack of every thread straight to this file (bypassing normal
+# buffering) on a segfault/abort/Windows structured exception, so a "silent" native
+# crash still leaves a trace even though the console window disappears with it.
+faulthandler.enable(file=_crash_log_file, all_threads=True)
+
+def _log_uncaught(exc_type, exc_value, exc_tb):
+    import traceback
+    traceback.print_exception(exc_type, exc_value, exc_tb, file=_crash_log_file)
+    _crash_log_file.flush()
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+sys.excepthook = _log_uncaught
+
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtCore import QSettings, QTranslator, QLocale, \
     Qt, QTimer, QThread, QObject, Signal, Slot, QEvent
@@ -138,10 +159,13 @@ def main():
     # Must run before model downloaders or archive readers are imported.
     configure_runtime()
     
-    # Configure logging
+    # Configure logging (also to the crash log file, so INFO-level breadcrumbs
+    # survive even when the console window disappears with a native crash).
     logging.basicConfig(
         level=logging.INFO,
+        handlers=[logging.StreamHandler(), logging.StreamHandler(_crash_log_file)],
     )
+    logging.info("Comic Translate starting up, crash log: %s", _crash_log_path)
     
     if sys.platform == "win32":
         # Necessary Workaround to set Taskbar Icon on Windows
