@@ -112,10 +112,34 @@ def build_bubble_clip_mask(
                         touch_ratio = np.mean(border_mask_pixels)
                     else:
                         touch_ratio = 0.0
-                        
+
+                    # A round/oval bubble never fills its own bounding-box corners
+                    # (an inscribed ellipse is tangent to the box edges but always
+                    # excludes the corners), so a high border touch_ratio there
+                    # reliably means the flood fill leaked past the bubble outline.
+                    # A flush rectangular text box, though, legitimately fills its
+                    # corners - use that as a second signal so those don't get
+                    # rejected into the ellipse fallback just for touching their
+                    # own (correct) edges.
+                    def _corner_fill_ratio(cy0, cy1, cx0, cx1):
+                        cy0c, cy1c = max(0, cy0), min(bubble_mask.shape[0], cy1)
+                        cx0c, cx1c = max(0, cx0), min(bubble_mask.shape[1], cx1)
+                        patch = bubble_mask[cy0c:cy1c, cx0c:cx1c]
+                        return float(patch.mean()) if patch.size else 0.0
+
+                    corner_ratios = [
+                        _corner_fill_ratio(b_y1_rel, b_y1_rel + 3, b_x1_rel, b_x1_rel + 3),
+                        _corner_fill_ratio(b_y1_rel, b_y1_rel + 3, b_x2_rel - 3, b_x2_rel),
+                        _corner_fill_ratio(b_y2_rel - 3, b_y2_rel, b_x1_rel, b_x1_rel + 3),
+                        _corner_fill_ratio(b_y2_rel - 3, b_y2_rel, b_x2_rel - 3, b_x2_rel),
+                    ]
+                    is_rectangular = sum(ratio > 0.7 for ratio in corner_ratios) >= 3
+
                     # If the segmented mask touches more than 50% of the bubble border,
-                    # it means it leaked to the outside (no outline/boundary contained it).
-                    if touch_ratio < 0.5:
+                    # it means it leaked to the outside (no outline/boundary contained it) -
+                    # unless the corners themselves are filled, which means this is a
+                    # rectangular box rather than a leaked round bubble.
+                    if touch_ratio < 0.5 or is_rectangular:
                         use_fallback = False
                         
                     if not use_fallback:
