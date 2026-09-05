@@ -11,6 +11,7 @@ from app.ui.messages import Messages
 from app.ui.commands.image import SetImageCommand, ToggleSkipImagesCommand
 from app.ui.commands.inpaint import PatchInsertCommand
 from app.ui.commands.inpaint import PatchCommandBase
+from app.ui.commands.base import _load_patch_image_rgba
 from app.ui.commands.box import AddTextItemCommand
 from app.ui.list_view_image_loader import ListViewImageLoader
 from app.thread_worker import GenericWorker
@@ -1013,9 +1014,10 @@ class ImageStateController:
                     'hash': saved['hash']
                 }
             else:
-                # load into memory
+                # load into memory - preserve real alpha (holes punched by the
+                # patch eraser) instead of imk.read_image's forced RGB conversion.
                 ensure_path_materialized(saved['png_path'])
-                rgb_img = imk.read_image(saved['png_path'])
+                rgb_img = _load_patch_image_rgba(png_path=saved['png_path'])
                 prop = {
                     'bbox': saved['bbox'],
                     'image': rgb_img,
