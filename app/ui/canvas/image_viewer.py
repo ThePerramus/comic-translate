@@ -43,6 +43,10 @@ class ImageViewer(QGraphicsView):
         # Managers using Composition
         self.drawing_manager = DrawingManager(self)
         self.reference_manager = ReferenceAlignmentManager(self)
+        # The aligned reference array for whichever page is displayed, kept in
+        # sync by ToolStateMixin._sync_reveal_source(); None if this page has
+        # no confirmed alignment. Read by DrawingManager._commit_reveal_stroke.
+        self.reveal_source = None
         self.webtoon_manager = LazyWebtoonManager(self)
         self.interaction_manager = InteractionManager(self)
         self.event_handler = EventHandler(self)
@@ -159,11 +163,11 @@ class ImageViewer(QGraphicsView):
 
     def set_tool(self, tool: str):
         self.current_tool = tool
-        if tool not in ['brush', 'eraser', 'pencil', 'patch_eraser']:
+        if tool not in ['brush', 'eraser', 'pencil', 'patch_eraser', 'reveal_pencil']:
             self.drawing_manager.hide_hover_preview()
         if tool == 'pan':
             self.setDragMode(QGraphicsView.ScrollHandDrag)
-        elif tool in ['brush', 'eraser', 'pencil', 'patch_eraser']:
+        elif tool in ['brush', 'eraser', 'pencil', 'patch_eraser', 'reveal_pencil']:
             self.setDragMode(QGraphicsView.NoDrag)
             if tool == 'brush':
                 cursor = self.drawing_manager.brush_cursor
@@ -171,6 +175,8 @@ class ImageViewer(QGraphicsView):
                 cursor = self.drawing_manager.eraser_cursor
             elif tool == 'pencil':
                 cursor = self.drawing_manager.pencil_cursor
+            elif tool == 'reveal_pencil':
+                cursor = self.drawing_manager.reveal_pencil_cursor
             else:
                 cursor = self.drawing_manager.patch_eraser_cursor
             self.setCursor(cursor)
@@ -238,6 +244,9 @@ class ImageViewer(QGraphicsView):
         elif self.current_tool == 'patch_eraser':
             self.drawing_manager.set_patch_eraser_size(size, scaled_size)
             self.setCursor(self.drawing_manager.patch_eraser_cursor)
+        elif self.current_tool == 'reveal_pencil':
+            self.drawing_manager.set_reveal_pencil_size(size, scaled_size)
+            self.setCursor(self.drawing_manager.reveal_pencil_cursor)
 
     def constrain_point(self, point: QPointF) -> QPointF:
         if self.webtoon_mode:
@@ -381,6 +390,7 @@ class ImageViewer(QGraphicsView):
         # Same reasoning: drop the reference-alignment overlay/handles ourselves
         # before scene.clear() deletes their C++ objects out from under us.
         self.reference_manager.cancel()
+        self.reveal_source = None
         self._scene.clear()
         self.rectangles.clear()
         self.text_items.clear()

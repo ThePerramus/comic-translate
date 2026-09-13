@@ -65,6 +65,14 @@ class ToolStateMixin:
         size = self.image_viewer.drawing_manager.pencil_size
         self.set_slider_size(size)
 
+    def toggle_reveal_pencil_tool(self):
+        if self.reveal_pencil_button.isChecked():
+            self.set_tool("reveal_pencil")
+            size = self.image_viewer.drawing_manager.reveal_pencil_size
+            self.set_slider_size(size)
+        else:
+            self.set_tool(None)
+
     def load_reference_book(self):
         """Load a whole second edition (cbz/cbr/pdf/...) of the same comic, so its
         pages can be auto-paired with this book's pages by index + an offset,
@@ -83,6 +91,7 @@ class ToolStateMixin:
         self.reference_images.clear()
         self.reference_page_offsets = []
         self._update_reference_offset_label()
+        self._sync_reveal_source()
 
     def _effective_reference_offset(self, hq_index: int) -> int:
         """Offsets are set per-breakpoint ("from this page onward"), not a
@@ -118,6 +127,7 @@ class ToolStateMixin:
             self.reference_images.pop(path, None)
 
         self._update_reference_offset_label()
+        self._sync_reveal_source()
 
     def toggle_reference_page_excluded(self, checked: int):
         """Mark/unmark the current page as having no counterpart at all in the
@@ -137,6 +147,21 @@ class ToolStateMixin:
         else:
             self.reference_excluded_pages.discard(file_path)
         self._update_reference_offset_label()
+        self._sync_reveal_source()
+
+    def _sync_reveal_source(self):
+        """Keep image_viewer.reveal_source (what the reveal pencil samples
+        from) in lockstep with whatever confirmed alignment - if any - exists
+        for the page currently on screen."""
+        if not self.image_files:
+            self.image_viewer.reveal_source = None
+            self.reveal_pencil_button.setEnabled(False)
+            return
+        file_path = self.image_files[self.curr_img_idx]
+        entry = self.reference_images.get(file_path)
+        warped = entry.get('warped') if entry else None
+        self.image_viewer.reveal_source = warped
+        self.reveal_pencil_button.setEnabled(warped is not None)
 
     def _update_reference_offset_label(self):
         file_path = self.image_files[self.curr_img_idx] if self.image_files else None
@@ -279,6 +304,7 @@ class ToolStateMixin:
         self.load_reference_button.setChecked(False)
         self.confirm_reference_button.setEnabled(False)
         self.set_tool(None)
+        self._sync_reveal_source()
 
     def set_reference_opacity(self, value: int):
         self.image_viewer.reference_manager.set_opacity(value / 100.0)
@@ -317,11 +343,14 @@ class ToolStateMixin:
             self.image_viewer.drawing_manager.set_pencil_size(size, size)
         elif current_tool == "patch_eraser":
             self.image_viewer.drawing_manager.set_patch_eraser_size(size, size)
+        elif current_tool == "reveal_pencil":
+            self.image_viewer.drawing_manager.set_reveal_pencil_size(size, size)
         else:
             self.image_viewer.brush_size = size
             self.image_viewer.eraser_size = size
             self.image_viewer.drawing_manager.set_pencil_size(size, size)
             self.image_viewer.drawing_manager.set_patch_eraser_size(size, size)
+            self.image_viewer.drawing_manager.set_reveal_pencil_size(size, size)
 
         if self.image_viewer.hasPhoto():
             image = self.image_viewer.get_image_array()
@@ -329,13 +358,14 @@ class ToolStateMixin:
                 h, w = image.shape[:2]
                 scaled_size = self.scale_size(size, w, h)
 
-                if current_tool in {"brush", "eraser", "pencil", "patch_eraser"}:
+                if current_tool in {"brush", "eraser", "pencil", "patch_eraser", "reveal_pencil"}:
                     self.image_viewer.set_br_er_size(size, scaled_size)
                 else:
                     self.image_viewer.drawing_manager.set_brush_size(size, scaled_size)
                     self.image_viewer.drawing_manager.set_eraser_size(size, scaled_size)
                     self.image_viewer.drawing_manager.set_pencil_size(size, scaled_size)
                     self.image_viewer.drawing_manager.set_patch_eraser_size(size, scaled_size)
+                    self.image_viewer.drawing_manager.set_reveal_pencil_size(size, scaled_size)
 
     def scale_size(self, base_size, image_width, image_height):
         image_diagonal = (image_width**2 + image_height**2) ** 0.5

@@ -421,8 +421,17 @@ class WorkspaceMixin:
         self.confirm_reference_button.clicked.connect(self.confirm_reference_alignment)
         self.confirm_reference_button.setEnabled(False)
 
+        self.reveal_pencil_button = self.create_tool_button(svg="reveal-pencil.svg", checkable=True)
+        self.reveal_pencil_button.setToolTip(self.tr(
+            "Reveal Pencil: Paint to Bring Over the Aligned Reference Page's Pixels "
+            "(e.g. Its Already-Translated Text) Instead of a Flat Color"))
+        self.reveal_pencil_button.clicked.connect(self.toggle_reveal_pencil_tool)
+        self.reveal_pencil_button.setEnabled(False)
+        self.tool_buttons["reveal_pencil"] = self.reveal_pencil_button
+
         ref_tools_lay.addWidget(self.load_reference_button)
         ref_tools_lay.addWidget(self.confirm_reference_button)
+        ref_tools_lay.addWidget(self.reveal_pencil_button)
         ref_tools_lay.addStretch()
 
         self.reference_opacity_slider = MSlider()

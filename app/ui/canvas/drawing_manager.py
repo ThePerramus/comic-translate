@@ -39,10 +39,18 @@ class DrawingManager:
         self.patch_eraser_size = 25
         self._patch_eraser_scaled_size = 25
 
+        # Reveal pencil: like the pencil, but instead of a flat picked color it
+        # samples per-pixel from the current page's aligned reference scan
+        # (viewer.reveal_source) - for bringing over text that's already
+        # translated in a second, often lower-quality, edition.
+        self.reveal_pencil_size = 25
+        self._reveal_pencil_scaled_size = 25
+
         self.brush_cursor = self.create_inpaint_cursor('brush', self.brush_size)
         self.eraser_cursor = self.create_inpaint_cursor('eraser', self.eraser_size)
         self.pencil_cursor = self.create_inpaint_cursor('pencil', self.pencil_size)
         self.patch_eraser_cursor = self.create_inpaint_cursor('patch_eraser', self.patch_eraser_size)
+        self.reveal_pencil_cursor = self.create_inpaint_cursor('reveal_pencil', self.reveal_pencil_size)
 
         self.current_path = None
         self.current_path_item = None
@@ -81,6 +89,12 @@ class DrawingManager:
             self.current_path_item = self._scene.addPath(self.current_path, pen)
             self.current_path_item.setZValue(0.9)
 
+        elif self.viewer.current_tool == 'reveal_pencil':
+            pen = QPen(QColor(40, 190, 220, 140), self.reveal_pencil_size,
+                       Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            self.current_path_item = self._scene.addPath(self.current_path, pen)
+            self.current_path_item.setZValue(0.9)
+
         elif self.viewer.current_tool == 'eraser':
             # Capture the current state before starting erase operation
             self.before_erase_state = []
@@ -105,7 +119,7 @@ class DrawingManager:
             return
 
         self.current_path.lineTo(scene_pos)
-        if self.viewer.current_tool in ('brush', 'pencil', 'patch_eraser') and self.current_path_item:
+        if self.viewer.current_tool in ('brush', 'pencil', 'patch_eraser', 'reveal_pencil') and self.current_path_item:
             self.current_path_item.setPath(self.current_path)
         elif self.viewer.current_tool == 'eraser':
             self.erase_at(scene_pos)
@@ -120,6 +134,8 @@ class DrawingManager:
                 self._commit_pencil_stroke()
             elif self.viewer.current_tool == 'patch_eraser':
                 self._commit_patch_erase()
+            elif self.viewer.current_tool == 'reveal_pencil':
+                self._commit_reveal_stroke()
 
         if self.viewer.current_tool == 'eraser':
             # Capture the current state after erase operation
@@ -290,6 +306,79 @@ class DrawingManager:
         patch = {'bbox': [x1, y1, w, h], 'image': patch_rgb}
         self.viewer.pencil_patch_ready.emit(patch)
 
+    def set_reveal_pencil_size(self, size, scaled_size):
+        self.reveal_pencil_size = size
+        self._reveal_pencil_scaled_size = scaled_size
+        self.reveal_pencil_cursor = self.create_inpaint_cursor("reveal_pencil", scaled_size)
+
+    def _commit_reveal_stroke(self):
+        """Bakes the just-drawn stroke into a patch that reveals the current
+        page's aligned reference scan underneath, pixel-for-pixel, instead of a
+        flat picked color - the manual "reveal" counterpart to the pencil, for
+        bringing over text that's already translated in a second edition.
+        Reuses the exact same patch pipeline as the pencil (undo/redo, save,
+        render) since the result is just another RGB patch."""
+        item = self.current_path_item
+        if item is None:
+            return
+
+        reveal_source = getattr(self.viewer, 'reveal_source', None)
+        if self.viewer.webtoon_mode or not self.viewer.hasPhoto() or reveal_source is None:
+            self._scene.removeItem(item)
+            return
+
+        path = item.path()
+        pen_width = item.pen().widthF()
+        stroke_rect = path.boundingRect().adjusted(-pen_width, -pen_width, pen_width, pen_width)
+
+        image_rect = self.viewer.photo.boundingRect()
+        img_w, img_h = int(image_rect.width()), int(image_rect.height())
+
+        if reveal_source.shape[:2] != (img_h, img_w):
+            # Stale/mismatched cached array (shouldn't happen - it's baked at
+            # this page's own size - but never paint from the wrong page).
+            self._scene.removeItem(item)
+            return
+
+        x1 = max(0, int(math.floor(stroke_rect.left())))
+        y1 = max(0, int(math.floor(stroke_rect.top())))
+        x2 = min(img_w, int(math.ceil(stroke_rect.right())))
+        y2 = min(img_h, int(math.ceil(stroke_rect.bottom())))
+        w, h = x2 - x1, y2 - y1
+
+        if w <= 0 or h <= 0:
+            self._scene.removeItem(item)
+            return
+
+        mask_qimg = QImage(w, h, QImage.Format_Grayscale8)
+        mask_qimg.fill(0)
+        mask_painter = QPainter(mask_qimg)
+        mask_painter.translate(-x1, -y1)
+        mask_pen = QPen(QColor(255, 255, 255), pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        mask_painter.setPen(mask_pen)
+        mask_painter.setBrush(Qt.NoBrush)
+        mask_painter.drawPath(path)
+        mask_painter.end()
+
+        mask_ptr = mask_qimg.constBits()
+        mask = np.array(mask_ptr).reshape(mask_qimg.height(), mask_qimg.bytesPerLine())[:, :w]
+
+        self._scene.removeItem(item)
+
+        base_rgb = self.viewer.get_image_array(include_patches=True)
+        if base_rgb is None:
+            return
+
+        patch_rgb = base_rgb[y1:y2, x1:x2].copy()
+        if patch_rgb.shape[:2] != (h, w):
+            return
+
+        ref_crop = reveal_source[y1:y2, x1:x2, :3]
+        patch_rgb[mask == 255] = ref_crop[mask == 255]
+
+        patch = {'bbox': [x1, y1, w, h], 'image': patch_rgb}
+        self.viewer.pencil_patch_ready.emit(patch)
+
     def set_patch_eraser_size(self, size, scaled_size):
         self.patch_eraser_size = size
         self._patch_eraser_scaled_size = scaled_size
@@ -419,6 +508,9 @@ class DrawingManager:
         elif cursor_type == "patch_eraser":
             painter.setBrush(QBrush(QColor(0, 0, 0, 0)))
             painter.setPen(QColor(220, 40, 40, 200))
+        elif cursor_type == "reveal_pencil":
+            painter.setBrush(QBrush(QColor(0, 0, 0, 0)))
+            painter.setPen(QColor(40, 190, 220, 220))
         else:
             painter.setBrush(QBrush(QColor(0, 0, 0, 127)))
             painter.setPen(Qt.PenStyle.NoPen)
@@ -436,6 +528,7 @@ class DrawingManager:
             'eraser': self.eraser_size,
             'pencil': self.pencil_size,
             'patch_eraser': self.patch_eraser_size,
+            'reveal_pencil': self.reveal_pencil_size,
         }
         if tool not in sizes or not self.viewer.hasPhoto():
             self.hide_hover_preview()
