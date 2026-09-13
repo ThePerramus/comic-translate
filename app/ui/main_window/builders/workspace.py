@@ -351,7 +351,8 @@ class WorkspaceMixin:
         self.tool_buttons["pencil"] = self.pencil_button
 
         self.patch_eraser_button = self.create_tool_button(svg="patch-eraser.svg", checkable=True)
-        self.patch_eraser_button.setToolTip(self.tr("Erase Part of an Inpainted Patch, Revealing What's Underneath"))
+        self.patch_eraser_button.setToolTip(self.tr(
+            "Erase Part of Any Patch (Auto-Clean, Pencil, or Reveal Pencil), Revealing What's Underneath"))
         self.patch_eraser_button.clicked.connect(self.toggle_patch_eraser_tool)
         self.tool_buttons["patch_eraser"] = self.patch_eraser_button
 
