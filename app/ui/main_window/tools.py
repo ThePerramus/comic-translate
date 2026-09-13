@@ -44,25 +44,24 @@ class ToolStateMixin:
     def toggle_pencil_tool(self):
         if self.pencil_button.isChecked():
             self.set_tool("pencil")
-            # Pencil size is shared with the brush/eraser slider: force it back
-            # in sync in case brush/eraser silently changed the slider's value.
-            self.set_brush_eraser_size(self.brush_eraser_slider.value())
+            size = self.image_viewer.drawing_manager.pencil_size
+            self.set_slider_size(size)
         else:
             self.set_tool(None)
 
     def toggle_patch_eraser_tool(self):
         if self.patch_eraser_button.isChecked():
             self.set_tool("patch_eraser")
-            # Size is shared with the brush/eraser/pencil slider: force it back in
-            # sync in case another tool silently changed the slider's value.
-            self.set_brush_eraser_size(self.brush_eraser_slider.value())
+            size = self.image_viewer.drawing_manager.patch_eraser_size
+            self.set_slider_size(size)
         else:
             self.set_tool(None)
 
     def on_color_picked(self):
         """Called after the eyedropper samples a color: switch straight to the pencil."""
         self.set_tool("pencil")
-        self.set_brush_eraser_size(self.brush_eraser_slider.value())
+        size = self.image_viewer.drawing_manager.pencil_size
+        self.set_slider_size(size)
 
     def set_slider_size(self, size: int):
         self.brush_eraser_slider.blockSignals(True)
