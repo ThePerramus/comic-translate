@@ -1208,6 +1208,7 @@ class ImageStateController:
             # toggle button's checked state need to catch up with reality.
             self.main._sync_reference_alignment_buttons()
             self.main._sync_reveal_source()
+            self.main._sync_hbutton_group_for_reference()
 
     def force_default_view_on_next_image_load(self):
         self._force_default_view_once = True

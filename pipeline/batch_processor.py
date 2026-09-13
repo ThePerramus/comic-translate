@@ -134,6 +134,16 @@ class BatchProcessor:
                 self.log_skipped_image(directory, timestamp, image_path, "User-skipped")
                 continue
 
+            # Pages using the reference-page workflow (revealing an aligned
+            # second scan's own already-translated text) aren't handled by
+            # this OCR+translate pipeline yet - they're worked on manually via
+            # the six-button flow, not Automatic mode. Skip rather than
+            # mistranslate them.
+            if self.main_page._page_uses_reference_workflow(image_path):
+                self.skip_save(directory, timestamp, base_name, extension, archive_bname, image)
+                self.log_skipped_image(directory, timestamp, image_path, "Uses reference-page workflow")
+                continue
+
             # Text Block Detection
             self.emit_progress(index, total_images, 1, 10, False)
             if self._is_cancelled():

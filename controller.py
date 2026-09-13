@@ -204,7 +204,7 @@ class ComicTranslate(ComicTranslateUI):
         self.hbutton_group.get_button_group().buttons()[2].clicked.connect(self.translate_image)
         self.hbutton_group.get_button_group().buttons()[3].clicked.connect(self.load_segmentation_points)
         self.hbutton_group.get_button_group().buttons()[4].clicked.connect(self.inpaint_and_set)
-        self.hbutton_group.get_button_group().buttons()[5].clicked.connect(self.text_ctrl.render_text)
+        self.hbutton_group.get_button_group().buttons()[5].clicked.connect(self.render_or_reveal)
 
         self.undo_tool_group.get_button_group().buttons()[0].clicked.connect(self.undo_group.undo)
         self.undo_tool_group.get_button_group().buttons()[1].clicked.connect(self.undo_group.redo)
@@ -770,8 +770,16 @@ class ComicTranslate(ComicTranslateUI):
             button.setEnabled(False)
 
     def enable_hbutton_group(self):
-        for button in self.hbutton_group.get_button_group().buttons():
+        buttons = self.hbutton_group.get_button_group().buttons()
+        for button in buttons:
             button.setEnabled(True)
+        # Recognize/Translate have nothing to do on a page that reveals its
+        # text from an aligned reference instead of OCR+translating it -
+        # Detect/Segment/Clean stay enabled either way (finding and clearing
+        # the text is language-agnostic; only Render's meaning changes).
+        if self.image_files and self._page_uses_reference_workflow(self.image_files[self.curr_img_idx]):
+            buttons[1].setEnabled(False)  # Recognize
+            buttons[2].setEnabled(False)  # Translate
 
     def block_detect(self, load_rects: bool = True):
         self.manual_workflow_ctrl.block_detect(load_rects)

@@ -92,6 +92,7 @@ class ToolStateMixin:
         self.reference_page_offsets = []
         self._update_reference_offset_label()
         self._sync_reveal_source()
+        self._sync_hbutton_group_for_reference()
 
     def _effective_reference_offset(self, hq_index: int) -> int:
         """Offsets are set per-breakpoint ("from this page onward"), not a
@@ -148,6 +149,7 @@ class ToolStateMixin:
             self.reference_excluded_pages.discard(file_path)
         self._update_reference_offset_label()
         self._sync_reveal_source()
+        self._sync_hbutton_group_for_reference()
 
     def _sync_reveal_source(self):
         """Keep image_viewer.reveal_source (what the reveal pencil samples
@@ -162,6 +164,104 @@ class ToolStateMixin:
         warped = entry.get('warped') if entry else None
         self.image_viewer.reveal_source = warped
         self.reveal_pencil_button.setEnabled(warped is not None)
+
+    def _page_uses_reference_workflow(self, file_path: str) -> bool:
+        """True when this page should skip Recognize/Translate and have
+        Render reveal the aligned reference instead: either it already has a
+        confirmed alignment, or a reference book is loaded at all (so pages
+        not yet aligned still count, since the intent is clear before you've
+        gotten around to dragging their corners) - unless explicitly excluded."""
+        if file_path in self.reference_excluded_pages:
+            return False
+        if file_path in self.reference_images:
+            return True
+        return bool(self.reference_book_handler.file_paths)
+
+    def auto_reveal_pages(self, file_paths: list) -> bool:
+        """For each page, replaces every existing (Segment+Clean) patch's
+        opaque pixels with the corresponding pixels from that page's aligned
+        reference - the automatic counterpart to the reveal pencil, applied to
+        whatever's already been cleaned instead of a hand-drawn stroke.
+        Returns True if at least one page actually got revealed into."""
+        from app.ui.commands.base import _load_patch_image_rgba
+        from app.ui.commands.inpaint import PatchEraseCommand
+
+        any_done = False
+        for file_path in file_paths:
+            entry = self.reference_images.get(file_path)
+            reveal_source = entry.get('warped') if entry else None
+            patches = self.image_patches.get(file_path, [])
+            stack = self.undo_stacks.get(file_path)
+            if reveal_source is None or not patches or stack is None:
+                continue
+
+            erased = []
+            for prop in list(patches):
+                img = _load_patch_image_rgba(png_path=prop['png_path'])
+                if img is None:
+                    continue
+                x, y, w, h = prop['bbox']
+                if reveal_source.shape[0] < y + h or reveal_source.shape[1] < x + w:
+                    continue
+                ref_crop = reveal_source[y:y + h, x:x + w, :3]
+                if ref_crop.shape[:2] != img.shape[:2]:
+                    continue
+                mask = img[:, :, 3] > 0
+                if not mask.any():
+                    continue
+                new_img = img.copy()
+                new_img[mask, :3] = ref_crop[mask]
+                erased.append({'old_patch': prop, 'new_image': new_img})
+
+            if not erased:
+                continue
+
+            # PatchEraseCommand is really "replace this patch's pixels, same
+            # bbox/hash lineage, undo restores the original" - reused as-is,
+            # it doesn't care whether the replacement has less alpha (a punched
+            # hole) or the same alpha with different colors (a reveal).
+            command = PatchEraseCommand(self, erased, file_path)
+            stack.push(command)
+            any_done = True
+
+        return any_done
+
+    def _sync_hbutton_group_for_reference(self):
+        """Applies the Recognize/Translate reference-page gating on its own,
+        called on every page switch. Uses Detect's own enabled state as a
+        proxy for "is the manual button group actually active right now" so
+        this never fights disable_hbutton_group() while work is in progress,
+        or re-enables anything while Automatic mode has the group disabled."""
+        if not self.image_files:
+            return
+        buttons = self.hbutton_group.get_button_group().buttons()
+        uses_reference = self._page_uses_reference_workflow(self.image_files[self.curr_img_idx])
+        if uses_reference:
+            buttons[1].setEnabled(False)
+            buttons[2].setEnabled(False)
+        elif buttons[0].isEnabled():
+            buttons[1].setEnabled(True)
+            buttons[2].setEnabled(True)
+
+    def render_or_reveal(self):
+        """The Render button's handler: for pages using the reference
+        workflow, there's no translated text to render (Recognize/Translate
+        are skipped for them) - reveal the aligned reference into whatever's
+        been cleaned instead. Mirrors render_text()'s own single/multi-page
+        split so the same button keeps working the same way either way."""
+        selected_paths = self.get_selected_page_paths()
+        if len(selected_paths) > 1:
+            target_paths = selected_paths
+        elif self.image_files:
+            target_paths = [self.image_files[self.curr_img_idx]]
+        else:
+            target_paths = []
+
+        reveal_paths = [p for p in target_paths if self._page_uses_reference_workflow(p)]
+        if reveal_paths:
+            self.auto_reveal_pages(reveal_paths)
+        if len(reveal_paths) < len(target_paths):
+            self.text_ctrl.render_text()
 
     def _update_reference_offset_label(self):
         file_path = self.image_files[self.curr_img_idx] if self.image_files else None
@@ -305,6 +405,7 @@ class ToolStateMixin:
         self.confirm_reference_button.setEnabled(False)
         self.set_tool(None)
         self._sync_reveal_source()
+        self._sync_hbutton_group_for_reference()
 
     def set_reference_opacity(self, value: int):
         self.image_viewer.reference_manager.set_opacity(value / 100.0)
