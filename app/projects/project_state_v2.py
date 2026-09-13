@@ -363,6 +363,18 @@ def save_state_to_proj_file_v2(comic_translate: "ComicTranslate", file_name: str
                 {"bbox": patch["bbox"], "png_hash": blob_hash, "hash": patch["hash"]}
             )
 
+    # Reference-page alignment: only ref_path + corners are persisted (same
+    # blob mechanism as patches) - the baked 'warped' array is never stored,
+    # it's cheap to recompute from those two on first use after loading.
+    reference_images_references: dict[str, dict] = {}
+    for page_path, entry in comic_translate.reference_images.items():
+        ref_path = entry.get("ref_path")
+        corners = entry.get("corners")
+        if not ref_path or not corners:
+            continue
+        blob_hash = add_blob_if_needed(ref_path, "reference")
+        reference_images_references[page_path] = {"ref_hash": blob_hash, "corners": corners}
+
     page_paths = list(
         dict.fromkeys(
             list(comic_translate.image_files)
@@ -370,6 +382,7 @@ def save_state_to_proj_file_v2(comic_translate: "ComicTranslate", file_name: str
             + list(image_history_references.keys())
             + list(in_memory_history_references.keys())
             + list(image_patches_references.keys())
+            + list(reference_images_references.keys())
         )
     )
 
@@ -382,6 +395,7 @@ def save_state_to_proj_file_v2(comic_translate: "ComicTranslate", file_name: str
             "image_history_refs": image_history_references.get(page_path, []),
             "in_memory_history_refs": in_memory_history_references.get(page_path, []),
             "patches": image_patches_references.get(page_path, []),
+            "reference": reference_images_references.get(page_path),
         }
         page_rows[page_path] = msgpack.packb(row_payload, default=encoder.encode, use_bin_type=True)
 
@@ -395,6 +409,8 @@ def save_state_to_proj_file_v2(comic_translate: "ComicTranslate", file_name: str
         "webtoon_mode": comic_translate.webtoon_mode,
         "webtoon_view_state": comic_translate.image_viewer.webtoon_view_state,
         "unique_images": ensure_string_keys(unique_images),
+        "reference_page_offsets": [list(pair) for pair in comic_translate.reference_page_offsets],
+        "reference_excluded_pages": list(comic_translate.reference_excluded_pages),
     }
     manifest_blob = msgpack.packb(manifest, default=encoder.encode, use_bin_type=True)
 
@@ -619,6 +635,37 @@ def _materialize_from_manifest_and_pages(
     comic_translate.image_patches = {
         original_to_temp.get(page, page): plist for page, plist in reconstructed.items()
     }
+
+    reconstructed_refs: dict[str, dict] = {}
+    unique_references_dir = os.path.join(temp_dir, "unique_references")
+    for page_path, row in page_rows.items():
+        ref_entry = row.get("reference")
+        if not ref_entry:
+            continue
+        ref_hash = ref_entry.get("ref_hash")
+        corners = ref_entry.get("corners")
+        if not ref_hash or not corners:
+            continue
+
+        os.makedirs(unique_references_dir, exist_ok=True)
+        page_folder = os.path.join(unique_references_dir, os.path.basename(page_path))
+        os.makedirs(page_folder, exist_ok=True)
+        ref_disk_path = os.path.join(page_folder, f"ref_{ref_hash[:12]}.png")
+        register_lazy_blob_path(project_file, ref_disk_path, str(ref_hash))
+
+        # 'warped' is intentionally left unset here (never persisted) - it's
+        # recomputed lazily on first use (see ToolStateMixin._ensure_warped).
+        reconstructed_refs[page_path] = {"ref_path": ref_disk_path, "corners": corners, "warped": None}
+
+    comic_translate.reference_images = {
+        original_to_temp.get(page, page): entry for page, entry in reconstructed_refs.items()
+    }
+    comic_translate.reference_page_offsets = [
+        tuple(pair) for pair in manifest.get("reference_page_offsets", [])
+    ]
+    comic_translate.reference_excluded_pages = set(
+        original_to_temp.get(p, p) for p in manifest.get("reference_excluded_pages", [])
+    )
 
     return manifest.get("llm_extra_context", "")
 

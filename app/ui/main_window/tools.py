@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtGui import QFontDatabase
 import imkit as imk
@@ -152,6 +153,44 @@ class ToolStateMixin:
         self._sync_reveal_source()
         self._sync_hbutton_group_for_reference()
 
+    def _ensure_warped(self, file_path: str):
+        """Reloading a project restores ref_path + corners but never the baked
+        'warped' array (too big to persist) - recompute it once, on first use
+        after loading, and cache it back onto the entry exactly like a fresh
+        confirm() would have produced."""
+        entry = self.reference_images.get(file_path)
+        if not entry or entry.get('warped') is not None:
+            return
+        ref_path = entry.get('ref_path')
+        corners = entry.get('corners')
+        if not ref_path or not corners:
+            return
+
+        ensure_path_materialized(ref_path)
+        ref_image = imk.read_image(ref_path)
+        if ref_image is None:
+            return
+
+        if (self.image_files and file_path == self.image_files[self.curr_img_idx]
+                and self.image_viewer.hasPhoto()):
+            page_rect = self.image_viewer.photo.boundingRect()
+            out_w, out_h = int(round(page_rect.width())), int(round(page_rect.height()))
+        else:
+            ensure_path_materialized(file_path)
+            page_img = imk.read_image(file_path)
+            if page_img is None:
+                return
+            out_h, out_w = page_img.shape[:2]
+
+        rh, rw = ref_image.shape[:2]
+        src = np.array([[0, 0], [rw, 0], [rw, rh], [0, rh]], dtype=np.float64)
+        dst = np.array(corners, dtype=np.float64)
+        try:
+            matrix = imk.get_perspective_transform(src, dst)
+            entry['warped'] = imk.warp_perspective(ref_image, matrix, (out_w, out_h))
+        except Exception:
+            pass
+
     def _sync_reveal_source(self):
         """Keep image_viewer.reveal_source (what the reveal pencil samples
         from) in lockstep with whatever confirmed alignment - if any - exists
@@ -161,6 +200,7 @@ class ToolStateMixin:
             self.reveal_pencil_button.setEnabled(False)
             return
         file_path = self.image_files[self.curr_img_idx]
+        self._ensure_warped(file_path)
         entry = self.reference_images.get(file_path)
         warped = entry.get('warped') if entry else None
         self.image_viewer.reveal_source = warped
@@ -189,6 +229,7 @@ class ToolStateMixin:
 
         any_done = False
         for file_path in file_paths:
+            self._ensure_warped(file_path)
             entry = self.reference_images.get(file_path)
             reveal_source = entry.get('warped') if entry else None
             patches = self.image_patches.get(file_path, [])
@@ -198,6 +239,7 @@ class ToolStateMixin:
 
             erased = []
             for prop in list(patches):
+                ensure_path_materialized(prop['png_path'])
                 img = _load_patch_image_rgba(png_path=prop['png_path'])
                 if img is None:
                     continue
