@@ -1,7 +1,8 @@
 import os
 
-from PySide6 import QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtGui import QFontDatabase
+import imkit as imk
 
 from .constants import user_font_path
 from app.path_materialization import ensure_path_materialized
@@ -75,6 +76,11 @@ class ToolStateMixin:
         if not path:
             return
         self.reference_book_handler.prepare_files([path])
+        # Any alignment confirmed so far paired pages using the *previous*
+        # book/offset, which is now meaningless - drop it so the next "load
+        # reference" click re-resolves fresh instead of silently reusing a
+        # stale (likely wrong) reference image.
+        self.reference_images.clear()
         self.reference_offset_spin.blockSignals(True)
         self.reference_offset_spin.setValue(0)
         self.reference_offset_spin.blockSignals(False)
@@ -83,20 +89,50 @@ class ToolStateMixin:
 
     def set_reference_page_offset(self, value: int):
         self.reference_page_offset = value
+        # Same reasoning as load_reference_book(): a changed offset means every
+        # previously-confirmed pairing for this book is now stale.
+        self.reference_images.clear()
         self._update_reference_offset_label()
 
     def _update_reference_offset_label(self):
         paths = self.reference_book_handler.file_paths
         if not paths:
             self.reference_offset_label.setText(self.tr("No reference book loaded"))
+            self._set_reference_preview(None)
             return
         index = self.curr_img_idx + self.reference_page_offset
         if 0 <= index < len(paths):
-            name = os.path.basename(paths[index])
+            ref_path = paths[index]
+            name = os.path.basename(ref_path)
             self.reference_offset_label.setText(
                 self.tr("Reference page {0}/{1}: {2}").format(index + 1, len(paths), name))
+            self._set_reference_preview(ref_path)
         else:
             self.reference_offset_label.setText(self.tr("Reference page out of range for this offset"))
+            self._set_reference_preview(None)
+
+    def _set_reference_preview(self, ref_path: str | None):
+        """Small thumbnail of the reference page currently paired with the page
+        you're on, so tuning the offset doesn't require opening the reference
+        book separately to count pages."""
+        if not ref_path:
+            self.reference_preview_label.clear()
+            self.reference_preview_label.setText(self.tr("(no preview)"))
+            return
+        try:
+            ensure_path_materialized(ref_path)
+            img = imk.read_image(ref_path)
+            if img is None:
+                raise ValueError("could not read reference image")
+            h, w = img.shape[:2]
+            qimage = QtGui.QImage(img.data, w, h, img.strides[0],
+                                   QtGui.QImage.Format.Format_RGB888).copy()
+            pixmap = QtGui.QPixmap.fromImage(qimage).scaledToWidth(
+                140, QtCore.Qt.TransformationMode.SmoothTransformation)
+            self.reference_preview_label.setPixmap(pixmap)
+        except Exception:
+            self.reference_preview_label.clear()
+            self.reference_preview_label.setText(self.tr("(preview unavailable)"))
 
     def _resolve_reference_book_page(self) -> str | None:
         """The reference-book page paired with the currently displayed page,

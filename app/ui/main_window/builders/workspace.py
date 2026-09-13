@@ -390,8 +390,16 @@ class WorkspaceMixin:
         ref_book_lay.addWidget(self.reference_offset_spin)
         ref_book_lay.addStretch()
 
+        ref_preview_lay = QtWidgets.QHBoxLayout()
+        self.reference_preview_label = QtWidgets.QLabel(self.tr("(no preview)"))
+        self.reference_preview_label.setFixedSize(140, 190)
+        self.reference_preview_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.reference_preview_label.setStyleSheet(
+            "QLabel { border: 1px solid #555; background-color: #222; color: #888; }")
         self.reference_offset_label = MLabel(self.tr("No reference book loaded"))
         self.reference_offset_label.setWordWrap(True)
+        ref_preview_lay.addWidget(self.reference_preview_label)
+        ref_preview_lay.addWidget(self.reference_offset_label, 1)
 
         ref_tools_lay = QtWidgets.QHBoxLayout()
 
@@ -430,7 +438,7 @@ class WorkspaceMixin:
         ref_div = MDivider(self.tr("Reference Page (Align a Second Scan)"))
         tools_layout.addWidget(ref_div)
         tools_layout.addLayout(ref_book_lay)
-        tools_layout.addWidget(self.reference_offset_label)
+        tools_layout.addLayout(ref_preview_lay)
         tools_layout.addLayout(ref_tools_lay)
         tools_layout.addWidget(self.reference_opacity_slider)
         tools_layout.addStretch()
