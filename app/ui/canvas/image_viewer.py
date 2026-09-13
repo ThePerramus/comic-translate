@@ -387,6 +387,9 @@ class ImageViewer(QGraphicsView):
         if self.drawing_manager.hover_preview_item is not None:
             self._scene.removeItem(self.drawing_manager.hover_preview_item)
             self.drawing_manager.hover_preview_item = None
+        if self.drawing_manager.reveal_preview_item is not None:
+            self._scene.removeItem(self.drawing_manager.reveal_preview_item)
+            self.drawing_manager.reveal_preview_item = None
         # Same reasoning: drop the reference-alignment overlay/handles ourselves
         # before scene.clear() deletes their C++ objects out from under us.
         self.reference_manager.cancel()

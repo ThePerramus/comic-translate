@@ -55,6 +55,10 @@ class DrawingManager:
         self.current_path = None
         self.current_path_item = None
 
+        # Live "what will actually be revealed" preview for the reveal pencil,
+        # updated on every mouse move while dragging (see _update_reveal_preview).
+        self.reveal_preview_item = None
+
         # Live hover preview: a scene-space circle (not an OS cursor) so it scales
         # correctly with zoom and always shows exactly where/how big the next
         # stroke will be, even before you start dragging.
@@ -63,37 +67,55 @@ class DrawingManager:
         self.before_erase_state = []
         self.after_erase_state = []
 
+    def _effective_size(self, raw_size):
+        """Scales a raw slider value (1-100) up to this page's actual pixel
+        scale, the same way create_inpaint_cursor's cursor bitmap already is
+        (see ToolStateMixin.scale_size) - without this, the OS cursor shown
+        while hovering looks properly sized on a large scan, but the real
+        stroke drawn on click was always the tiny unscaled 1-100 value,
+        regardless of resolution or where the slider was set."""
+        rect = self.viewer.photo.boundingRect()
+        w, h = rect.width(), rect.height()
+        if w <= 0 or h <= 0:
+            return raw_size
+        diagonal = (w ** 2 + h ** 2) ** 0.5
+        return raw_size * (diagonal / 1000.0)
+
     def start_stroke(self, scene_pos: QPointF):
         """Starts a new drawing or erasing stroke."""
         self.viewer.drawing_path = QPainterPath() # drawing_path is on viewer in original
         self.viewer.drawing_path.moveTo(scene_pos)
-        
+
         self.current_path = QPainterPath()
         self.current_path.moveTo(scene_pos)
 
         if self.viewer.current_tool == 'brush':
-            pen = QPen(self.brush_color, self.brush_size,
+            pen = QPen(self.brush_color, self._effective_size(self.brush_size),
                        Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
             self.current_path_item = self._scene.addPath(self.current_path, pen)
             self.current_path_item.setZValue(0.8)
 
         elif self.viewer.current_tool == 'pencil':
-            pen = QPen(self.pencil_color, self.pencil_size,
+            pen = QPen(self.pencil_color, self._effective_size(self.pencil_size),
                        Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
             self.current_path_item = self._scene.addPath(self.current_path, pen)
             self.current_path_item.setZValue(0.9)
 
         elif self.viewer.current_tool == 'patch_eraser':
-            pen = QPen(QColor(220, 40, 40, 140), self.patch_eraser_size,
+            pen = QPen(QColor(220, 40, 40, 140), self._effective_size(self.patch_eraser_size),
                        Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
             self.current_path_item = self._scene.addPath(self.current_path, pen)
             self.current_path_item.setZValue(0.9)
 
         elif self.viewer.current_tool == 'reveal_pencil':
-            pen = QPen(QColor(40, 190, 220, 140), self.reveal_pencil_size,
+            # A faint outline only - the actual revealed pixels are shown live
+            # via reveal_preview_item (see _update_reveal_preview), not a flat
+            # tinted highlight, so you can see what you're revealing as you draw.
+            pen = QPen(QColor(40, 190, 220, 60), self._effective_size(self.reveal_pencil_size),
                        Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
             self.current_path_item = self._scene.addPath(self.current_path, pen)
             self.current_path_item.setZValue(0.9)
+            self._update_reveal_preview()
 
         elif self.viewer.current_tool == 'eraser':
             # Capture the current state before starting erase operation
@@ -121,6 +143,8 @@ class DrawingManager:
         self.current_path.lineTo(scene_pos)
         if self.viewer.current_tool in ('brush', 'pencil', 'patch_eraser', 'reveal_pencil') and self.current_path_item:
             self.current_path_item.setPath(self.current_path)
+            if self.viewer.current_tool == 'reveal_pencil':
+                self._update_reveal_preview()
         elif self.viewer.current_tool == 'eraser':
             self.erase_at(scene_pos)
 
@@ -136,6 +160,7 @@ class DrawingManager:
                 self._commit_patch_erase()
             elif self.viewer.current_tool == 'reveal_pencil':
                 self._commit_reveal_stroke()
+                self._clear_reveal_preview()
 
         if self.viewer.current_tool == 'eraser':
             # Capture the current state after erase operation
@@ -172,8 +197,9 @@ class DrawingManager:
         self.viewer.drawing_path = None
 
     def erase_at(self, pos: QPointF):
+        radius = self._effective_size(self.eraser_size)
         erase_path = QPainterPath()
-        erase_path.addEllipse(pos, self.eraser_size, self.eraser_size)
+        erase_path.addEllipse(pos, radius, radius)
 
         for item in self._scene.items(erase_path):
             if isinstance(item, QGraphicsPathItem) and item != self.viewer.photo:
@@ -310,6 +336,65 @@ class DrawingManager:
         self.reveal_pencil_size = size
         self._reveal_pencil_scaled_size = scaled_size
         self.reveal_pencil_cursor = self.create_inpaint_cursor("reveal_pencil", scaled_size)
+
+    def _clear_reveal_preview(self):
+        if self.reveal_preview_item is not None:
+            self._scene.removeItem(self.reveal_preview_item)
+            self.reveal_preview_item = None
+
+    def _update_reveal_preview(self):
+        """Shows, live while dragging, exactly the pixels the reveal pencil
+        would bake in if released right now - masked to the actual stroke
+        shape, not a flat tinted highlight - so revealing isn't done blind."""
+        item = self.current_path_item
+        reveal_source = getattr(self.viewer, 'reveal_source', None)
+        if item is None or reveal_source is None or self.viewer.webtoon_mode:
+            return
+
+        path = item.path()
+        pen_width = item.pen().widthF()
+        stroke_rect = path.boundingRect().adjusted(-pen_width, -pen_width, pen_width, pen_width)
+
+        image_rect = self.viewer.photo.boundingRect()
+        img_w, img_h = int(image_rect.width()), int(image_rect.height())
+        if reveal_source.shape[:2] != (img_h, img_w):
+            return
+
+        x1 = max(0, int(math.floor(stroke_rect.left())))
+        y1 = max(0, int(math.floor(stroke_rect.top())))
+        x2 = min(img_w, int(math.ceil(stroke_rect.right())))
+        y2 = min(img_h, int(math.ceil(stroke_rect.bottom())))
+        w, h = x2 - x1, y2 - y1
+        if w <= 0 or h <= 0:
+            return
+
+        mask_qimg = QImage(w, h, QImage.Format_Grayscale8)
+        mask_qimg.fill(0)
+        mask_painter = QPainter(mask_qimg)
+        mask_painter.translate(-x1, -y1)
+        mask_pen = QPen(QColor(255, 255, 255), pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        mask_painter.setPen(mask_pen)
+        mask_painter.setBrush(Qt.NoBrush)
+        mask_painter.drawPath(path)
+        mask_painter.end()
+
+        mask_ptr = mask_qimg.constBits()
+        mask = np.array(mask_ptr).reshape(mask_qimg.height(), mask_qimg.bytesPerLine())[:, :w]
+
+        ref_crop = reveal_source[y1:y2, x1:x2, :3]
+        rgba = np.zeros((h, w, 4), dtype=np.uint8)
+        rgba[..., :3] = ref_crop
+        rgba[..., 3] = np.where(mask == 255, 255, 0).astype(np.uint8)
+
+        qimg = QImage(rgba.data, w, h, rgba.strides[0], QImage.Format.Format_RGBA8888).copy()
+        pixmap = QPixmap.fromImage(qimg)
+
+        if self.reveal_preview_item is None:
+            self.reveal_preview_item = self._scene.addPixmap(pixmap)
+            self.reveal_preview_item.setZValue(0.95)  # above the faint outline, below hover preview
+        else:
+            self.reveal_preview_item.setPixmap(pixmap)
+        self.reveal_preview_item.setPos(x1, y1)
 
     def _commit_reveal_stroke(self):
         """Bakes the just-drawn stroke into a patch that reveals the current
@@ -534,7 +619,7 @@ class DrawingManager:
             self.hide_hover_preview()
             return
 
-        size = max(1, sizes[tool])
+        size = max(1, self._effective_size(sizes[tool]))
         radius = size / 2.0
 
         if self.hover_preview_item is None:
