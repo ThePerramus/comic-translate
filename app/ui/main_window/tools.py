@@ -119,7 +119,40 @@ class ToolStateMixin:
 
         self._update_reference_offset_label()
 
+    def toggle_reference_page_excluded(self, checked: int):
+        """Mark/unmark the current page as having no counterpart at all in the
+        reference book (e.g. a bonus page only present in this edition), so it
+        gets skipped by the reference workflow and translated the normal way."""
+        if not self.image_files:
+            return
+        file_path = self.image_files[self.curr_img_idx]
+        if checked:
+            self.reference_excluded_pages.add(file_path)
+            # Whatever was aligned here (if anything) no longer applies.
+            self.reference_images.pop(file_path, None)
+            if self.image_viewer.reference_manager.active_file_path == file_path:
+                self.image_viewer.reference_manager.cancel()
+                self.load_reference_button.setChecked(False)
+                self.confirm_reference_button.setEnabled(False)
+        else:
+            self.reference_excluded_pages.discard(file_path)
+        self._update_reference_offset_label()
+
     def _update_reference_offset_label(self):
+        file_path = self.image_files[self.curr_img_idx] if self.image_files else None
+        excluded = file_path is not None and file_path in self.reference_excluded_pages
+
+        self.reference_excluded_checkbox.blockSignals(True)
+        self.reference_excluded_checkbox.setChecked(excluded)
+        self.reference_excluded_checkbox.blockSignals(False)
+        self.load_reference_button.setEnabled(not excluded)
+
+        if excluded:
+            self.reference_offset_label.setText(
+                self.tr("No reference for this page - will use traditional translation."))
+            self._set_reference_preview(None)
+            return
+
         paths = self.reference_book_handler.file_paths
         offset = self._effective_reference_offset(self.curr_img_idx)
         self.reference_offset_spin.blockSignals(True)
@@ -167,9 +200,12 @@ class ToolStateMixin:
 
     def _resolve_reference_book_page(self) -> str | None:
         """The reference-book page paired with the currently displayed page,
-        per the configured offset, or None if no book is loaded / out of range."""
+        per the configured offset, or None if no book is loaded / out of range /
+        this page was explicitly marked as having no reference counterpart."""
         paths = self.reference_book_handler.file_paths
         if not paths or not self.image_files:
+            return None
+        if self.image_files[self.curr_img_idx] in self.reference_excluded_pages:
             return None
         index = self.curr_img_idx + self._effective_reference_offset(self.curr_img_idx)
         if index < 0 or index >= len(paths):

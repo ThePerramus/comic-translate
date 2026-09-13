@@ -401,6 +401,13 @@ class WorkspaceMixin:
         ref_preview_lay.addWidget(self.reference_preview_label)
         ref_preview_lay.addWidget(self.reference_offset_label, 1)
 
+        self.reference_excluded_checkbox = MCheckBox(
+            self.tr("This Page Has No Reference (Use Traditional Translation)"))
+        self.reference_excluded_checkbox.setToolTip(self.tr(
+            "For pages that exist only in this edition (e.g. bonus pages) and "
+            "have no counterpart in the reference book at all"))
+        self.reference_excluded_checkbox.stateChanged.connect(self.toggle_reference_page_excluded)
+
         ref_tools_lay = QtWidgets.QHBoxLayout()
 
         self.load_reference_button = self.create_tool_button(svg="ion--image-outline.svg", checkable=True)
@@ -439,6 +446,7 @@ class WorkspaceMixin:
         tools_layout.addWidget(ref_div)
         tools_layout.addLayout(ref_book_lay)
         tools_layout.addLayout(ref_preview_lay)
+        tools_layout.addWidget(self.reference_excluded_checkbox)
         tools_layout.addLayout(ref_tools_lay)
         tools_layout.addWidget(self.reference_opacity_slider)
         tools_layout.addStretch()

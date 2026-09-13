@@ -100,6 +100,10 @@ class ComicTranslate(ComicTranslateUI):
         # (0 if none set yet) - lets a divider/insert partway through the
         # reference book be corrected without breaking earlier pages' pairing.
         self.reference_page_offsets = []
+        # HQ pages with no counterpart at all in the reference book (e.g. bonus
+        # pages only present in this edition) - excluded from the reference
+        # workflow entirely, translated the traditional way instead.
+        self.reference_excluded_pages = set()
         self.max_images_in_memory = 5
         self.loaded_images = []
 
