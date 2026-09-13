@@ -95,7 +95,11 @@ class ComicTranslate(ComicTranslateUI):
         # auto-paired with this book's pages by index + a fixed offset, instead
         # of picking a reference image one page at a time.
         self.reference_book_handler = FileHandler()
-        self.reference_page_offset = 0
+        # Piecewise offsets: sorted [(start_page_index, offset), ...]. The
+        # offset in effect for a page is the last breakpoint at or before it
+        # (0 if none set yet) - lets a divider/insert partway through the
+        # reference book be corrected without breaking earlier pages' pairing.
+        self.reference_page_offsets = []
         self.max_images_in_memory = 5
         self.loaded_images = []
 

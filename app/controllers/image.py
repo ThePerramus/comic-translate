@@ -1203,6 +1203,11 @@ class ImageStateController:
                 self.main.image_viewer.fitInView()
                 self.main.displayed_images.add(file_path)  # Mark this image as displayed
 
+            # load_image_state() above clears the scene (and with it, silently
+            # cancels any in-progress reference alignment) - only now does the
+            # toggle button's checked state need to catch up with reality.
+            self.main._sync_reference_alignment_buttons()
+
     def force_default_view_on_next_image_load(self):
         self._force_default_view_once = True
 

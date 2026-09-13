@@ -77,35 +77,66 @@ class ToolStateMixin:
             return
         self.reference_book_handler.prepare_files([path])
         # Any alignment confirmed so far paired pages using the *previous*
-        # book/offset, which is now meaningless - drop it so the next "load
+        # book/offsets, which is now meaningless - drop it so the next "load
         # reference" click re-resolves fresh instead of silently reusing a
         # stale (likely wrong) reference image.
         self.reference_images.clear()
-        self.reference_offset_spin.blockSignals(True)
-        self.reference_offset_spin.setValue(0)
-        self.reference_offset_spin.blockSignals(False)
-        self.reference_page_offset = 0
+        self.reference_page_offsets = []
         self._update_reference_offset_label()
 
+    def _effective_reference_offset(self, hq_index: int) -> int:
+        """Offsets are set per-breakpoint ("from this page onward"), not a
+        single global number, so a divider/insert page partway through the
+        reference book can be corrected without breaking pairing for every
+        page before it. Returns the value of the last breakpoint at or before
+        hq_index, or 0 if none has been set yet."""
+        offset = 0
+        for start_index, value in self.reference_page_offsets:
+            if start_index <= hq_index:
+                offset = value
+            else:
+                break
+        return offset
+
     def set_reference_page_offset(self, value: int):
-        self.reference_page_offset = value
-        # Same reasoning as load_reference_book(): a changed offset means every
-        # previously-confirmed pairing for this book is now stale.
-        self.reference_images.clear()
+        """Sets the offset starting at the current page and onward, until the
+        next breakpoint (if any). Pages before the current one are untouched."""
+        index = self.curr_img_idx
+        if self._effective_reference_offset(index) == value and not any(
+                start == index for start, _ in self.reference_page_offsets):
+            return  # no-op: matches what would already apply here, not a real edit
+
+        self.reference_page_offsets = [
+            (start, v) for start, v in self.reference_page_offsets if start != index
+        ]
+        self.reference_page_offsets.append((index, value))
+        self.reference_page_offsets.sort(key=lambda pair: pair[0])
+
+        # Only pages from here onward could have had their effective offset
+        # change because of this edit.
+        for path in self.image_files[index:]:
+            self.reference_images.pop(path, None)
+
         self._update_reference_offset_label()
 
     def _update_reference_offset_label(self):
         paths = self.reference_book_handler.file_paths
+        offset = self._effective_reference_offset(self.curr_img_idx)
+        self.reference_offset_spin.blockSignals(True)
+        self.reference_offset_spin.setValue(offset)
+        self.reference_offset_spin.blockSignals(False)
+
         if not paths:
             self.reference_offset_label.setText(self.tr("No reference book loaded"))
             self._set_reference_preview(None)
             return
-        index = self.curr_img_idx + self.reference_page_offset
+        index = self.curr_img_idx + offset
         if 0 <= index < len(paths):
             ref_path = paths[index]
             name = os.path.basename(ref_path)
             self.reference_offset_label.setText(
-                self.tr("Reference page {0}/{1}: {2}").format(index + 1, len(paths), name))
+                self.tr("Reference page {0}/{1}: {2} (offset {3})").format(
+                    index + 1, len(paths), name, offset))
             self._set_reference_preview(ref_path)
         else:
             self.reference_offset_label.setText(self.tr("Reference page out of range for this offset"))
@@ -140,12 +171,25 @@ class ToolStateMixin:
         paths = self.reference_book_handler.file_paths
         if not paths or not self.image_files:
             return None
-        index = self.curr_img_idx + self.reference_page_offset
+        index = self.curr_img_idx + self._effective_reference_offset(self.curr_img_idx)
         if index < 0 or index >= len(paths):
             return None
         ref_path = paths[index]
         ensure_path_materialized(ref_path)
         return ref_path
+
+    def _sync_reference_alignment_buttons(self):
+        """Navigating pages silently cancels any in-progress alignment (see
+        ImageViewer.clear_scene), but that left the toggle button showing
+        "checked" with nothing actually on screen - so the next click just
+        turned the (already-gone) overlay off instead of loading anything,
+        and it took a second click to get it to reappear. Keep the button's
+        checked state (and the confirm button's enabled state) truthful."""
+        active = self.image_viewer.reference_manager.active
+        self.load_reference_button.blockSignals(True)
+        self.load_reference_button.setChecked(active)
+        self.load_reference_button.blockSignals(False)
+        self.confirm_reference_button.setEnabled(active)
 
     def toggle_reference_alignment(self):
         """Overlay a second scan of the current page (semi-transparent, 4 draggable
