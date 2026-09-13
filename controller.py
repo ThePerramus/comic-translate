@@ -936,8 +936,13 @@ class ComicTranslate(ComicTranslateUI):
         # Delete temp archive folders
         for archive in self.file_handler.archive_info:
             temp_dir = archive['temp_dir']
-            if os.path.exists(temp_dir): 
-                shutil.rmtree(temp_dir)  
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+
+        for archive in self.reference_book_handler.archive_info:
+            temp_dir = archive['temp_dir']
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
 
         for root, dirs, files in os.walk(self.temp_dir, topdown=False):
             for name in files:

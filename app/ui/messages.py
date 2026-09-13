@@ -66,6 +66,18 @@ class Messages:
         )
 
     @staticmethod
+    def show_nothing_to_reveal_error(parent, reason: str):
+        MMessage.error(
+            text=QCoreApplication.translate(
+                "Messages",
+                "Can't reveal the reference here: {}"
+            ).format(reason),
+            parent=parent,
+            duration=None,
+            closable=True
+        )
+
+    @staticmethod
     def show_insufficient_credits_error(parent, details: str = None):
         """
         Show an error message when the user has insufficient credits.

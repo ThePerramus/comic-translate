@@ -6,6 +6,7 @@ import imkit as imk
 
 from .constants import user_font_path
 from app.path_materialization import ensure_path_materialized
+from app.ui.messages import Messages
 
 
 class ToolStateMixin:
@@ -259,9 +260,30 @@ class ToolStateMixin:
 
         reveal_paths = [p for p in target_paths if self._page_uses_reference_workflow(p)]
         if reveal_paths:
-            self.auto_reveal_pages(reveal_paths)
+            revealed_any = self.auto_reveal_pages(reveal_paths)
+            if not revealed_any:
+                self._explain_nothing_revealed(reveal_paths)
         if len(reveal_paths) < len(target_paths):
             self.text_ctrl.render_text()
+
+    def _explain_nothing_revealed(self, reveal_paths: list):
+        """render_or_reveal() found pages in reference mode but couldn't
+        actually reveal anything into them - tell the user why instead of
+        silently doing nothing, which just looks like Render is broken."""
+        if len(reveal_paths) != 1:
+            Messages.show_nothing_to_reveal_error(
+                self, self.tr("none of the selected pages have both an aligned reference and cleaned patches yet."))
+            return
+        file_path = reveal_paths[0]
+        if file_path not in self.reference_images:
+            Messages.show_nothing_to_reveal_error(
+                self, self.tr("this page hasn't been aligned to a reference yet (use the Reference Page tools above)."))
+        elif not self.image_patches.get(file_path):
+            Messages.show_nothing_to_reveal_error(
+                self, self.tr("nothing has been cleaned on this page yet (run Segment, then Clean, first)."))
+        else:
+            Messages.show_nothing_to_reveal_error(
+                self, self.tr("the aligned reference doesn't line up with this page's cleaned areas."))
 
     def _update_reference_offset_label(self):
         file_path = self.image_files[self.curr_img_idx] if self.image_files else None
