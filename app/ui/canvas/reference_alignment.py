@@ -8,7 +8,7 @@ it (e.g. its untranslated text) through holes punched in the cleaned page above.
 
 import numpy as np
 from PySide6 import QtGui
-from PySide6.QtCore import Qt, QPointF
+from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import QColor, QPen, QBrush, QPolygonF, QTransform
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsPixmapItem
 
@@ -47,6 +47,7 @@ class ReferenceAlignmentManager:
         self.corners: list[QPointF] = []
         self.opacity: float = 0.5
         self.dragging_index: int | None = None
+        self._original_scene_rect: QRectF | None = None
 
     @property
     def active(self) -> bool:
@@ -75,6 +76,7 @@ class ReferenceAlignmentManager:
             # drags corners inward/outward from there to match the real art.
             corners = [QPointF(0, 0), QPointF(page_w, 0), QPointF(page_w, page_h), QPointF(0, page_h)]
         self.corners = corners
+        self._original_scene_rect = self.viewer.sceneRect()
 
         qimage = QtGui.QImage(ref_image.data, rw, rh, ref_image.strides[0],
                                QtGui.QImage.Format.Format_RGB888).copy()
@@ -93,6 +95,7 @@ class ReferenceAlignmentManager:
             self.handles.append(handle)
 
         self._apply_transform()
+        self._update_scene_rect()
         return True
 
     def cancel(self):
@@ -108,6 +111,10 @@ class ReferenceAlignmentManager:
         self.ref_path = None
         self.ref_image = None
         self.dragging_index = None
+        # Restore the normal page-only scrollable area (see _update_scene_rect).
+        if self._original_scene_rect is not None:
+            self.viewer.setSceneRect(self._original_scene_rect)
+            self._original_scene_rect = None
 
     def set_opacity(self, value: float):
         self.opacity = value
@@ -129,9 +136,24 @@ class ReferenceAlignmentManager:
         self.corners[self.dragging_index] = scene_pos
         self.handles[self.dragging_index].setPos(scene_pos)
         self._apply_transform()
+        self._update_scene_rect()
 
     def end_drag(self):
         self.dragging_index = None
+
+    def _update_scene_rect(self):
+        """A corner dragged outside the page is otherwise unreachable: QGraphicsView
+        clamps scrolling to sceneRect, so content past its edges can't be scrolled
+        into view no matter how far you drag. Grow the scene rect to always cover
+        wherever the handles currently are (plus margin), so panning/zooming can
+        still reach them; restored to the page-only rect in cancel()."""
+        if self._original_scene_rect is None:
+            return
+        bounds = QRectF(self._original_scene_rect)
+        margin = max(self._original_scene_rect.width(), self._original_scene_rect.height()) * 0.5
+        for pt in self.corners:
+            bounds = bounds.united(QRectF(pt.x() - margin, pt.y() - margin, margin * 2, margin * 2))
+        self.viewer.setSceneRect(bounds)
 
     def _apply_transform(self):
         """Live preview only: map the reference pixmap's own rectangle onto the

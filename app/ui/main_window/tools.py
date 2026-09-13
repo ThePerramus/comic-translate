@@ -4,6 +4,7 @@ from PySide6 import QtGui, QtWidgets
 from PySide6.QtGui import QFontDatabase
 
 from .constants import user_font_path
+from app.path_materialization import ensure_path_materialized
 
 
 class ToolStateMixin:
@@ -63,6 +64,53 @@ class ToolStateMixin:
         size = self.image_viewer.drawing_manager.pencil_size
         self.set_slider_size(size)
 
+    def load_reference_book(self):
+        """Load a whole second edition (cbz/cbr/pdf/...) of the same comic, so its
+        pages can be auto-paired with this book's pages by index + an offset,
+        instead of picking a reference image one page at a time."""
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, self.tr("Select Reference Book"), os.path.expanduser("~"),
+            self.tr("Comic Archives") + " (*.cbr *.cbz *.cbt *.cb7 *.zip *.rar *.7z *.tar *.pdf *.epub)"
+        )
+        if not path:
+            return
+        self.reference_book_handler.prepare_files([path])
+        self.reference_offset_spin.blockSignals(True)
+        self.reference_offset_spin.setValue(0)
+        self.reference_offset_spin.blockSignals(False)
+        self.reference_page_offset = 0
+        self._update_reference_offset_label()
+
+    def set_reference_page_offset(self, value: int):
+        self.reference_page_offset = value
+        self._update_reference_offset_label()
+
+    def _update_reference_offset_label(self):
+        paths = self.reference_book_handler.file_paths
+        if not paths:
+            self.reference_offset_label.setText(self.tr("No reference book loaded"))
+            return
+        index = self.curr_img_idx + self.reference_page_offset
+        if 0 <= index < len(paths):
+            name = os.path.basename(paths[index])
+            self.reference_offset_label.setText(
+                self.tr("Reference page {0}/{1}: {2}").format(index + 1, len(paths), name))
+        else:
+            self.reference_offset_label.setText(self.tr("Reference page out of range for this offset"))
+
+    def _resolve_reference_book_page(self) -> str | None:
+        """The reference-book page paired with the currently displayed page,
+        per the configured offset, or None if no book is loaded / out of range."""
+        paths = self.reference_book_handler.file_paths
+        if not paths or not self.image_files:
+            return None
+        index = self.curr_img_idx + self.reference_page_offset
+        if index < 0 or index >= len(paths):
+            return None
+        ref_path = paths[index]
+        ensure_path_materialized(ref_path)
+        return ref_path
+
     def toggle_reference_alignment(self):
         """Overlay a second scan of the current page (semi-transparent, 4 draggable
         corners) so its art can be dragged into alignment with this page's own."""
@@ -75,6 +123,9 @@ class ToolStateMixin:
             existing = self.reference_images.get(file_path)
             saved_corners = existing.get('corners') if existing else None
             ref_path = existing.get('ref_path') if existing else None
+
+            if not ref_path:
+                ref_path = self._resolve_reference_book_page()
 
             if not ref_path:
                 ref_path, _ = QtWidgets.QFileDialog.getOpenFileName(

@@ -8,12 +8,14 @@ from app.ui.dayu_widgets.button_group import MPushButtonGroup, MToolButtonGroup
 from app.ui.dayu_widgets.check_box import MCheckBox
 from app.ui.dayu_widgets.combo_box import MComboBox, MFontComboBox
 from app.ui.dayu_widgets.divider import MDivider
+from app.ui.dayu_widgets.label import MLabel
 from app.ui.dayu_widgets.line_edit import MLineEdit
 from app.ui.dayu_widgets.loading import MLoading
 from app.ui.dayu_widgets.progress_bar import MProgressBar
 from app.ui.dayu_widgets.push_button import MPushButton
 from app.ui.dayu_widgets.radio_button import MRadioButton
 from app.ui.dayu_widgets.slider import MSlider
+from app.ui.dayu_widgets.spin_box import MSpinBox
 from app.ui.dayu_widgets.text_edit import MTextEdit
 from app.ui.dayu_widgets.tool_button import MToolButton
 from app.ui.search_replace_panel import SearchReplacePanel
@@ -368,15 +370,38 @@ class WorkspaceMixin:
         self.brush_eraser_slider.setToolTip(self.tr("Brush/Eraser Size Slider"))
         self.brush_eraser_slider.valueChanged.connect(self.set_brush_eraser_size)
 
+        ref_book_lay = QtWidgets.QHBoxLayout()
+
+        self.load_reference_book_button = MPushButton(text=self.tr("Load Reference Book")).small()
+        self.load_reference_book_button.setToolTip(self.tr(
+            "Load a Whole Second Edition (cbz/cbr/pdf/...) to Auto-Pair Its Pages by Index + Offset"))
+        self.load_reference_book_button.clicked.connect(self.load_reference_book)
+
+        self.reference_offset_spin = MSpinBox()
+        self.reference_offset_spin.setRange(-999, 999)
+        self.reference_offset_spin.setValue(0)
+        self.reference_offset_spin.setToolTip(self.tr(
+            "Page Offset: Reference Page = Current Page + Offset "
+            "(e.g. set to 2 if the reference book has 2 extra pages before this one)"))
+        self.reference_offset_spin.valueChanged.connect(self.set_reference_page_offset)
+
+        ref_book_lay.addWidget(self.load_reference_book_button)
+        ref_book_lay.addWidget(MLabel(self.tr("Offset:")))
+        ref_book_lay.addWidget(self.reference_offset_spin)
+        ref_book_lay.addStretch()
+
+        self.reference_offset_label = MLabel(self.tr("No reference book loaded"))
+        self.reference_offset_label.setWordWrap(True)
+
         ref_tools_lay = QtWidgets.QHBoxLayout()
 
         self.load_reference_button = self.create_tool_button(svg="ion--image-outline.svg", checkable=True)
         self.load_reference_button.setToolTip(self.tr(
-            "Overlay a Second Scan of This Page and Drag its Corners to Align It"))
+            "Overlay This Page's Reference (from the Book Above, or Pick One) and Drag its Corners to Align It"))
         self.load_reference_button.clicked.connect(self.toggle_reference_alignment)
         self.tool_buttons["align_reference"] = self.load_reference_button
 
-        self.confirm_reference_button = self.create_tool_button(svg="confirm_line.svg")
+        self.confirm_reference_button = self.create_tool_button(svg="check.svg")
         self.confirm_reference_button.setToolTip(self.tr("Confirm Alignment"))
         self.confirm_reference_button.clicked.connect(self.confirm_reference_alignment)
         self.confirm_reference_button.setEnabled(False)
@@ -404,6 +429,8 @@ class WorkspaceMixin:
 
         ref_div = MDivider(self.tr("Reference Page (Align a Second Scan)"))
         tools_layout.addWidget(ref_div)
+        tools_layout.addLayout(ref_book_lay)
+        tools_layout.addWidget(self.reference_offset_label)
         tools_layout.addLayout(ref_tools_lay)
         tools_layout.addWidget(self.reference_opacity_slider)
         tools_layout.addStretch()

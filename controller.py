@@ -91,6 +91,11 @@ class ComicTranslate(ComicTranslateUI):
         # Per-page manual reference-scan alignment (in-memory only for now):
         # {file_path: {'ref_path': str, 'corners': [[x,y]]*4, 'warped': np.ndarray}}
         self.reference_images = {}
+        # A whole second edition (cbz/cbr/pdf/...) loaded so its pages can be
+        # auto-paired with this book's pages by index + a fixed offset, instead
+        # of picking a reference image one page at a time.
+        self.reference_book_handler = FileHandler()
+        self.reference_page_offset = 0
         self.max_images_in_memory = 5
         self.loaded_images = []
 

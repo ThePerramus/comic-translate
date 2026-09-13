@@ -1168,6 +1168,7 @@ class ImageStateController:
                 self.save_current_image_state()
             self.main.curr_img_idx = index
             file_path = self.main.image_files[index]
+            self.main._update_reference_offset_label()
 
             # Set the active stack for the current image
             file_path = self.main.image_files[index]
