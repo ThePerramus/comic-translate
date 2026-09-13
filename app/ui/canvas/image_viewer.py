@@ -10,6 +10,7 @@ from .text.text_item_properties import TextItemProperties
 from .rectangle import MoveableRectItem
 from .rotate_cursor import RotateHandleCursors
 from .drawing_manager import DrawingManager
+from .reference_alignment import ReferenceAlignmentManager
 from .webtoons.webtoon_manager import LazyWebtoonManager
 from .interaction_manager import InteractionManager
 from .event_handler import EventHandler
@@ -41,6 +42,7 @@ class ImageViewer(QGraphicsView):
 
         # Managers using Composition
         self.drawing_manager = DrawingManager(self)
+        self.reference_manager = ReferenceAlignmentManager(self)
         self.webtoon_manager = LazyWebtoonManager(self)
         self.interaction_manager = InteractionManager(self)
         self.event_handler = EventHandler(self)
@@ -175,6 +177,9 @@ class ImageViewer(QGraphicsView):
         elif tool == 'eyedropper':
             self.setDragMode(QGraphicsView.NoDrag)
             self.setCursor(Qt.CursorShape.CrossCursor)
+        elif tool == 'align_reference':
+            self.setDragMode(QGraphicsView.NoDrag)
+            self.unsetCursor()
         else:
             self.setDragMode(QGraphicsView.NoDrag)
 
@@ -373,6 +378,9 @@ class ImageViewer(QGraphicsView):
         if self.drawing_manager.hover_preview_item is not None:
             self._scene.removeItem(self.drawing_manager.hover_preview_item)
             self.drawing_manager.hover_preview_item = None
+        # Same reasoning: drop the reference-alignment overlay/handles ourselves
+        # before scene.clear() deletes their C++ objects out from under us.
+        self.reference_manager.cancel()
         self._scene.clear()
         self.rectangles.clear()
         self.text_items.clear()

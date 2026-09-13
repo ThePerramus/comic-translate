@@ -368,6 +368,30 @@ class WorkspaceMixin:
         self.brush_eraser_slider.setToolTip(self.tr("Brush/Eraser Size Slider"))
         self.brush_eraser_slider.valueChanged.connect(self.set_brush_eraser_size)
 
+        ref_tools_lay = QtWidgets.QHBoxLayout()
+
+        self.load_reference_button = self.create_tool_button(svg="ion--image-outline.svg", checkable=True)
+        self.load_reference_button.setToolTip(self.tr(
+            "Overlay a Second Scan of This Page and Drag its Corners to Align It"))
+        self.load_reference_button.clicked.connect(self.toggle_reference_alignment)
+        self.tool_buttons["align_reference"] = self.load_reference_button
+
+        self.confirm_reference_button = self.create_tool_button(svg="confirm_line.svg")
+        self.confirm_reference_button.setToolTip(self.tr("Confirm Alignment"))
+        self.confirm_reference_button.clicked.connect(self.confirm_reference_alignment)
+        self.confirm_reference_button.setEnabled(False)
+
+        ref_tools_lay.addWidget(self.load_reference_button)
+        ref_tools_lay.addWidget(self.confirm_reference_button)
+        ref_tools_lay.addStretch()
+
+        self.reference_opacity_slider = MSlider()
+        self.reference_opacity_slider.setMinimum(0)
+        self.reference_opacity_slider.setMaximum(100)
+        self.reference_opacity_slider.setValue(50)
+        self.reference_opacity_slider.setToolTip(self.tr("Reference Overlay Opacity"))
+        self.reference_opacity_slider.valueChanged.connect(self.set_reference_opacity)
+
         tools_layout.addLayout(misc_lay)
         box_div = MDivider(self.tr("Box Drawing"))
         tools_layout.addWidget(box_div)
@@ -377,6 +401,11 @@ class WorkspaceMixin:
         tools_layout.addWidget(inp_div)
         tools_layout.addLayout(inp_tools_lay)
         tools_layout.addWidget(self.brush_eraser_slider)
+
+        ref_div = MDivider(self.tr("Reference Page (Align a Second Scan)"))
+        tools_layout.addWidget(ref_div)
+        tools_layout.addLayout(ref_tools_lay)
+        tools_layout.addWidget(self.reference_opacity_slider)
         tools_layout.addStretch()
         tools_widget.setLayout(tools_layout)
 

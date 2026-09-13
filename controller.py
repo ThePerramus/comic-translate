@@ -88,6 +88,9 @@ class ComicTranslate(ComicTranslateUI):
         self.displayed_images = set()  # Set to track displayed images
         self.image_patches = {}  # Store patches for each image
         self.in_memory_patches = {}  # Store patches in memory for each image
+        # Per-page manual reference-scan alignment (in-memory only for now):
+        # {file_path: {'ref_path': str, 'corners': [[x,y]]*4, 'warped': np.ndarray}}
+        self.reference_images = {}
         self.max_images_in_memory = 5
         self.loaded_images = []
 

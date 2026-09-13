@@ -63,6 +63,59 @@ class ToolStateMixin:
         size = self.image_viewer.drawing_manager.pencil_size
         self.set_slider_size(size)
 
+    def toggle_reference_alignment(self):
+        """Overlay a second scan of the current page (semi-transparent, 4 draggable
+        corners) so its art can be dragged into alignment with this page's own."""
+        if self.load_reference_button.isChecked():
+            if not self.image_viewer.hasPhoto() or not self.image_files:
+                self.load_reference_button.setChecked(False)
+                return
+
+            file_path = self.image_files[self.curr_img_idx]
+            existing = self.reference_images.get(file_path)
+            saved_corners = existing.get('corners') if existing else None
+            ref_path = existing.get('ref_path') if existing else None
+
+            if not ref_path:
+                ref_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                    self, self.tr("Select Reference Page Image"), os.path.expanduser("~"),
+                    self.tr("Images") + " (*.png *.jpg *.jpeg *.bmp *.webp)"
+                )
+                if not ref_path:
+                    self.load_reference_button.setChecked(False)
+                    return
+                saved_corners = None
+
+            started = self.image_viewer.reference_manager.start(file_path, ref_path, saved_corners)
+            if not started:
+                self.load_reference_button.setChecked(False)
+                return
+
+            self.image_viewer.reference_manager.set_opacity(self.reference_opacity_slider.value() / 100.0)
+            self.set_tool("align_reference")
+            self.confirm_reference_button.setEnabled(True)
+        else:
+            self.image_viewer.reference_manager.cancel()
+            self.set_tool(None)
+            self.confirm_reference_button.setEnabled(False)
+
+    def confirm_reference_alignment(self):
+        result = self.image_viewer.reference_manager.confirm()
+        if result is None:
+            return
+        file_path, ref_path, corners, warped = result
+        self.reference_images[file_path] = {
+            'ref_path': ref_path,
+            'corners': corners,
+            'warped': warped,
+        }
+        self.load_reference_button.setChecked(False)
+        self.confirm_reference_button.setEnabled(False)
+        self.set_tool(None)
+
+    def set_reference_opacity(self, value: int):
+        self.image_viewer.reference_manager.set_opacity(value / 100.0)
+
     def set_slider_size(self, size: int):
         self.brush_eraser_slider.blockSignals(True)
         self.brush_eraser_slider.setValue(size)

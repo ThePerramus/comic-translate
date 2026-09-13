@@ -108,6 +108,13 @@ class EventHandler:
                 self.viewer.drawing_manager.pick_color(scene_pos)
                 self.viewer.color_picked.emit()
 
+        if self.viewer.current_tool == 'align_reference' and self.viewer.reference_manager.active:
+            handle_index = self.viewer.reference_manager.hit_test(scene_pos)
+            if handle_index is not None:
+                self.viewer.reference_manager.begin_drag(handle_index)
+                event.accept()
+                return
+
         # Only pass to QGraphicsView for panning or tool-specific interactions, not our items
         scroll = self.viewer.dragMode() == QtWidgets.QGraphicsView.DragMode.ScrollHandDrag
         if self.viewer.current_tool == 'pan' or scroll:
@@ -147,6 +154,9 @@ class EventHandler:
         if self.viewer.current_tool == 'box':
             self._move_handle_box_resize(scene_pos)
 
+        if self.viewer.current_tool == 'align_reference' and self.viewer.reference_manager.dragging_index is not None:
+            self.viewer.reference_manager.drag_to(scene_pos)
+
         self.last_scene_pos = scene_pos
 
     def handle_mouse_release(self, event: QtGui.QMouseEvent):
@@ -184,6 +194,9 @@ class EventHandler:
             
         if self.viewer.current_tool == 'box':
             self._release_handle_box_creation()
+
+        if self.viewer.current_tool == 'align_reference':
+            self.viewer.reference_manager.end_drag()
 
     def handle_wheel(self, event: QtGui.QWheelEvent):
         if not self.viewer.hasPhoto(): 
