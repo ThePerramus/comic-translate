@@ -356,12 +356,24 @@ class WorkspaceMixin:
         self.patch_eraser_button.clicked.connect(self.toggle_patch_eraser_tool)
         self.tool_buttons["patch_eraser"] = self.patch_eraser_button
 
+        # Lives here (not in the Reference Page section below) because it's a
+        # paint tool sharing the same size slider as the others, even though
+        # it only does anything once a page has an aligned reference.
+        self.reveal_pencil_button = self.create_tool_button(svg="reveal-pencil.svg", checkable=True)
+        self.reveal_pencil_button.setToolTip(self.tr(
+            "Reveal Pencil: Paint to Bring Over the Aligned Reference Page's Pixels "
+            "(e.g. Its Already-Translated Text) Instead of a Flat Color"))
+        self.reveal_pencil_button.clicked.connect(self.toggle_reveal_pencil_tool)
+        self.reveal_pencil_button.setEnabled(False)
+        self.tool_buttons["reveal_pencil"] = self.reveal_pencil_button
+
         inp_tools_lay.addWidget(self.brush_button)
         inp_tools_lay.addWidget(self.eraser_button)
         inp_tools_lay.addWidget(self.clear_brush_strokes_button)
         inp_tools_lay.addWidget(self.eyedropper_button)
         inp_tools_lay.addWidget(self.pencil_button)
         inp_tools_lay.addWidget(self.patch_eraser_button)
+        inp_tools_lay.addWidget(self.reveal_pencil_button)
         inp_tools_lay.addStretch()
 
         self.brush_size_label = MLabel(self.tr("Tool Size (Brush/Eraser/Pencil/Patch Eraser/Reveal Pencil)"))
@@ -423,17 +435,8 @@ class WorkspaceMixin:
         self.confirm_reference_button.clicked.connect(self.confirm_reference_alignment)
         self.confirm_reference_button.setEnabled(False)
 
-        self.reveal_pencil_button = self.create_tool_button(svg="reveal-pencil.svg", checkable=True)
-        self.reveal_pencil_button.setToolTip(self.tr(
-            "Reveal Pencil: Paint to Bring Over the Aligned Reference Page's Pixels "
-            "(e.g. Its Already-Translated Text) Instead of a Flat Color"))
-        self.reveal_pencil_button.clicked.connect(self.toggle_reveal_pencil_tool)
-        self.reveal_pencil_button.setEnabled(False)
-        self.tool_buttons["reveal_pencil"] = self.reveal_pencil_button
-
         ref_tools_lay.addWidget(self.load_reference_button)
         ref_tools_lay.addWidget(self.confirm_reference_button)
-        ref_tools_lay.addWidget(self.reveal_pencil_button)
         ref_tools_lay.addStretch()
 
         self.reference_opacity_label = MLabel(self.tr("Reference Overlay Opacity (While Aligning Only)"))
