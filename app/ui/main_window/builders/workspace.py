@@ -364,11 +364,12 @@ class WorkspaceMixin:
         inp_tools_lay.addWidget(self.patch_eraser_button)
         inp_tools_lay.addStretch()
 
+        self.brush_size_label = MLabel(self.tr("Tool Size (Brush/Eraser/Pencil/Patch Eraser/Reveal Pencil)"))
         self.brush_eraser_slider = MSlider()
         self.brush_eraser_slider.setMinimum(1)
         self.brush_eraser_slider.setMaximum(100)
         self.brush_eraser_slider.setValue(10)
-        self.brush_eraser_slider.setToolTip(self.tr("Brush/Eraser Size Slider"))
+        self.brush_eraser_slider.setToolTip(self.tr("Brush/Eraser/Pencil/Patch Eraser/Reveal Pencil Size"))
         self.brush_eraser_slider.valueChanged.connect(self.set_brush_eraser_size)
 
         ref_book_lay = QtWidgets.QHBoxLayout()
@@ -435,11 +436,13 @@ class WorkspaceMixin:
         ref_tools_lay.addWidget(self.reveal_pencil_button)
         ref_tools_lay.addStretch()
 
+        self.reference_opacity_label = MLabel(self.tr("Reference Overlay Opacity (While Aligning Only)"))
         self.reference_opacity_slider = MSlider()
         self.reference_opacity_slider.setMinimum(0)
         self.reference_opacity_slider.setMaximum(100)
         self.reference_opacity_slider.setValue(50)
-        self.reference_opacity_slider.setToolTip(self.tr("Reference Overlay Opacity"))
+        self.reference_opacity_slider.setToolTip(self.tr(
+            "Reference Overlay Opacity - Not the Reveal Pencil's Size, See 'Tool Size' Above"))
         self.reference_opacity_slider.valueChanged.connect(self.set_reference_opacity)
 
         tools_layout.addLayout(misc_lay)
@@ -450,6 +453,7 @@ class WorkspaceMixin:
         inp_div = MDivider(self.tr("Inpainting"))
         tools_layout.addWidget(inp_div)
         tools_layout.addLayout(inp_tools_lay)
+        tools_layout.addWidget(self.brush_size_label)
         tools_layout.addWidget(self.brush_eraser_slider)
 
         ref_div = MDivider(self.tr("Reference Page (Align a Second Scan)"))
@@ -458,6 +462,7 @@ class WorkspaceMixin:
         tools_layout.addLayout(ref_preview_lay)
         tools_layout.addWidget(self.reference_excluded_checkbox)
         tools_layout.addLayout(ref_tools_lay)
+        tools_layout.addWidget(self.reference_opacity_label)
         tools_layout.addWidget(self.reference_opacity_slider)
         tools_layout.addStretch()
         tools_widget.setLayout(tools_layout)

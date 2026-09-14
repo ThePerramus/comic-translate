@@ -137,10 +137,19 @@ class PatchInsertCommand(QUndoCommand, PatchCommandBase):
         self._register_patches()
         self._draw_pixmaps()
         self.display = True
+        self._refresh_view()
 
     def undo(self):
         self._remove_pixmaps()
         self._unregister_patches()
+        self._refresh_view()
+
+    def _refresh_view(self):
+        """See PatchEraseCommand._refresh_view() for why this is here too."""
+        self.scene.update()
+        views = self.scene.views()
+        if views:
+            views[0].viewport().update()
 
 
 class PatchEraseCommand(QUndoCommand, PatchCommandBase):
@@ -214,10 +223,28 @@ class PatchEraseCommand(QUndoCommand, PatchCommandBase):
             self._remove(old_prop)
             if new_prop is not None:
                 self._add(new_prop)
+        self._refresh_view()
 
     def undo(self):
         for old_prop, new_prop in zip(self.old_props, self.new_props):
             if new_prop is not None:
                 self._remove(new_prop)
             self._add(old_prop)
+        self._refresh_view()
+
+    def _refresh_view(self):
+        """Belt-and-suspenders full repaint after a remove-then-add swap.
+        Qt normally tracks the dirty region for removeItem()/addItem() on its
+        own, but when several overlapping patches get swapped out in one
+        command (e.g. an auto-reveal replacing a Clean patch that a manual
+        reveal-pencil stroke already partially overlaps), a stale partial
+        repaint of the old item's vacated area is possible - it would look
+        exactly like a rendering glitch (stray leftover pixels) even though
+        the underlying patch data is already correct, which is consistent
+        with get_image_array() (a fresh recomposite, not the paint buffer)
+        never reproducing it."""
+        self.scene.update()
+        views = self.scene.views()
+        if views:
+            views[0].viewport().update()
 
