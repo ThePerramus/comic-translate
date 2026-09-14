@@ -85,16 +85,39 @@ class ToolStateMixin:
         )
         if not path:
             return
+        self._load_reference_book_from_path(path, reset_state=True)
+
+    def _load_reference_book_from_path(self, path: str, reset_state: bool):
         self.reference_book_handler.prepare_files([path])
-        # Any alignment confirmed so far paired pages using the *previous*
-        # book/offsets, which is now meaningless - drop it so the next "load
-        # reference" click re-resolves fresh instead of silently reusing a
-        # stale (likely wrong) reference image.
-        self.reference_images.clear()
-        self.reference_page_offsets = []
+        self.reference_book_path = path
+        if reset_state:
+            # Any alignment confirmed so far paired pages using the *previous*
+            # book/offsets, which is now meaningless - drop it so the next
+            # "load reference" click re-resolves fresh instead of silently
+            # reusing a stale (likely wrong) reference image.
+            self.reference_images.clear()
+            self.reference_page_offsets = []
+            self.reference_offset_spin.blockSignals(True)
+            self.reference_offset_spin.setValue(0)
+            self.reference_offset_spin.blockSignals(False)
         self._update_reference_offset_label()
         self._sync_reveal_source()
         self._sync_hbutton_group_for_reference()
+
+    def try_restore_reference_book(self):
+        """Called right after a project finishes loading: re-index whatever
+        reference book was loaded when the project was last saved, so
+        existing alignments/offsets keep working without making the user
+        reload it by hand every time. Warns instead of silently doing
+        nothing if the file has since moved or been deleted."""
+        path = self.reference_book_path
+        if not path:
+            return
+        if not os.path.isfile(path):
+            Messages.show_reference_book_missing_error(self, path)
+            self.reference_book_path = None
+            return
+        self._load_reference_book_from_path(path, reset_state=False)
 
     def _effective_reference_offset(self, hq_index: int) -> int:
         """Offsets are set per-breakpoint ("from this page onward"), not a

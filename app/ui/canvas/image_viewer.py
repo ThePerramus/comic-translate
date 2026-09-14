@@ -176,7 +176,15 @@ class ImageViewer(QGraphicsView):
             elif tool == 'pencil':
                 cursor = self.drawing_manager.pencil_cursor
             elif tool == 'reveal_pencil':
-                cursor = self.drawing_manager.reveal_pencil_cursor
+                # This tool tends to get used at the largest sizes (covering
+                # whole text boxes), which is exactly where a size-varying OS
+                # cursor bitmap becomes unusable - past whatever size the
+                # platform actually honors, the icon just stops changing no
+                # matter the value, and that dead zone is most of this tool's
+                # range. Skip it entirely: a fixed crosshair plus the
+                # scene-space hover-preview circle (uncapped, always accurate)
+                # is the same approach real paint tools use for large brushes.
+                cursor = Qt.CursorShape.CrossCursor
             else:
                 cursor = self.drawing_manager.patch_eraser_cursor
             self.setCursor(cursor)
@@ -246,7 +254,9 @@ class ImageViewer(QGraphicsView):
             self.setCursor(self.drawing_manager.patch_eraser_cursor)
         elif self.current_tool == 'reveal_pencil':
             self.drawing_manager.set_reveal_pencil_size(size, scaled_size)
-            self.setCursor(self.drawing_manager.reveal_pencil_cursor)
+            # Keep the fixed crosshair from set_tool() - see the comment there
+            # for why this tool never uses a size-varying OS cursor bitmap.
+            self.setCursor(Qt.CursorShape.CrossCursor)
 
     def constrain_point(self, point: QPointF) -> QPointF:
         if self.webtoon_mode:

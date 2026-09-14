@@ -66,6 +66,20 @@ class Messages:
         )
 
     @staticmethod
+    def show_reference_book_missing_error(parent, path: str):
+        MMessage.error(
+            text=QCoreApplication.translate(
+                "Messages",
+                "The reference book for this project can't be found anymore:\n{}\n"
+                "Page alignments already made are unaffected - load it again via "
+                "the Reference Page tools if you still have it, to align more pages."
+            ).format(path),
+            parent=parent,
+            duration=None,
+            closable=True
+        )
+
+    @staticmethod
     def show_nothing_to_reveal_error(parent, reason: str):
         MMessage.error(
             text=QCoreApplication.translate(

@@ -1413,6 +1413,7 @@ class ProjectController:
     
     def load_state_to_ui(self, saved_ctx: str):
         self.main.settings_page.ui.extra_context.setPlainText(saved_ctx)
+        self.main.try_restore_reference_book()
 
     def save_main_page_settings(self):
         settings = QSettings("ComicLabs", "ComicTranslate")
