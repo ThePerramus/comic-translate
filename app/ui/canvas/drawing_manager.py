@@ -55,6 +55,15 @@ class DrawingManager:
         self.current_path = None
         self.current_path_item = None
 
+        # Shift-constrain (Photoshop-style): while held, the stroke snaps to a
+        # straight horizontal/vertical line from wherever it was when the
+        # constraint (re)engaged, instead of following the raw mouse path.
+        # Reset to None on release so freehand resumes exactly from there, and
+        # to the current point whenever Shift isn't held, so re-engaging Shift
+        # later locks relative to the freehand point you're at then - not the
+        # stroke's original start.
+        self._shift_lock_origin = None
+
         # Live "what will actually be revealed" preview for the reveal pencil,
         # updated on every mouse move while dragging (see _update_reveal_preview).
         self.reveal_preview_item = None
@@ -88,6 +97,7 @@ class DrawingManager:
 
         self.current_path = QPainterPath()
         self.current_path.moveTo(scene_pos)
+        self._shift_lock_origin = QPointF(scene_pos)
 
         if self.viewer.current_tool == 'brush':
             pen = QPen(self.brush_color, self._effective_size(self.brush_size),
@@ -135,10 +145,17 @@ class DrawingManager:
                 traceback.print_exc()
                 self.before_erase_state = []
 
-    def continue_stroke(self, scene_pos: QPointF):
-        """Continues an existing drawing or erasing stroke."""
+    def continue_stroke(self, scene_pos: QPointF, shift_constrain: bool = False):
+        """Continues an existing drawing or erasing stroke. While
+        shift_constrain is True, the point is snapped to a straight
+        horizontal/vertical line first (see _constrain_to_axis)."""
         if not self.current_path:
             return
+
+        if shift_constrain:
+            scene_pos = self._constrain_to_axis(scene_pos)
+        else:
+            self._shift_lock_origin = QPointF(scene_pos)
 
         self.current_path.lineTo(scene_pos)
         if self.viewer.current_tool in ('brush', 'pencil', 'patch_eraser', 'reveal_pencil') and self.current_path_item:
@@ -147,6 +164,20 @@ class DrawingManager:
                 self._update_reveal_preview()
         elif self.viewer.current_tool == 'eraser':
             self.erase_at(scene_pos)
+
+    def _constrain_to_axis(self, scene_pos: QPointF) -> QPointF:
+        """Snaps scene_pos onto a horizontal or vertical line through
+        _shift_lock_origin, picking whichever axis has the larger delta -
+        the same "straight line while held" behavior as Photoshop's brush."""
+        origin = self._shift_lock_origin
+        if origin is None:
+            self._shift_lock_origin = QPointF(scene_pos)
+            return scene_pos
+        dx = scene_pos.x() - origin.x()
+        dy = scene_pos.y() - origin.y()
+        if abs(dx) >= abs(dy):
+            return QPointF(scene_pos.x(), origin.y())
+        return QPointF(origin.x(), scene_pos.y())
 
     def end_stroke(self):
         """Finalizes the current stroke and creates an undo command."""
@@ -194,6 +225,7 @@ class DrawingManager:
         
         self.current_path = None
         self.current_path_item = None
+        self._shift_lock_origin = None
         self.viewer.drawing_path = None
 
     def erase_at(self, pos: QPointF):

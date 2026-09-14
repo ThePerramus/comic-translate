@@ -150,7 +150,8 @@ class EventHandler:
         
         if self.viewer.current_tool in ['brush', 'eraser', 'pencil', 'patch_eraser', 'reveal_pencil'] and self.viewer.drawing_manager.current_path:
             if self._is_on_image(scene_pos):
-                self.viewer.drawing_manager.continue_stroke(scene_pos)
+                shift_held = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                self.viewer.drawing_manager.continue_stroke(scene_pos, shift_constrain=shift_held)
 
         if self.viewer.current_tool in ['brush', 'eraser', 'pencil', 'patch_eraser', 'reveal_pencil']:
             if self._is_on_image(scene_pos):
