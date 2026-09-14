@@ -235,6 +235,11 @@ class ImageViewer(QGraphicsView):
     def viewportEvent(self, event):
         return self.event_handler.handle_viewport_event(event)
 
+    def keyPressEvent(self, event):
+        if self.event_handler.handle_key_press(event):
+            return
+        super().keyPressEvent(event)
+
     def leaveEvent(self, event):
         self.drawing_manager.hide_hover_preview()
         super().leaveEvent(event)
@@ -388,6 +393,10 @@ class ImageViewer(QGraphicsView):
 
     def clear_scene(self):
         self.webtoon_manager.clear()
+        # Flush any pending arrow-key-nudge undo commit before its target item
+        # is deleted below - a debounce timer firing later on an already-
+        # deleted C++ object would crash.
+        self.event_handler.flush_nudge()
         # Detach the hover-preview item ourselves before the bulk scene.clear()
         # below deletes it out from under us. removeItem() just unparents it
         # (the C++ object stays alive and valid), so dropping our reference

@@ -14,6 +14,13 @@ class EventHandler:
         self.viewer = viewer
         self.dragged_item = None
         self.last_scene_pos = None
+
+        # Arrow-key nudge state: an in-progress nudge "session" on one item,
+        # coalesced into a single undo entry after a debounce pause instead of
+        # pushing one per keypress.
+        self._nudge_target = None
+        self._nudge_old_state = None
+        self._nudge_timer = None
     
     # Main Event Handlers
 
@@ -528,3 +535,70 @@ class EventHandler:
             self.viewer._programmatic_scroll_timer.setSingleShot(True)
             self.viewer._programmatic_scroll_timer.timeout.connect(self._enable_page_detection)
         self.viewer._programmatic_scroll_timer.start(200)
+
+    # Keyboard nudging
+
+    def handle_key_press(self, event: QtGui.QKeyEvent) -> bool:
+        """Arrow-key nudging for fine adjustment where a mouse drag is too
+        coarse: 1px steps, 10px with Shift. Applies to the selected reference-
+        alignment corner handle, or the selected text box / rectangle."""
+        key = event.key()
+        if key not in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
+            return False
+
+        step = 10.0 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1.0
+        dx = -step if key == Qt.Key.Key_Left else (step if key == Qt.Key.Key_Right else 0.0)
+        dy = -step if key == Qt.Key.Key_Up else (step if key == Qt.Key.Key_Down else 0.0)
+
+        if self.viewer.current_tool == 'align_reference' and self.viewer.reference_manager.active:
+            return self.viewer.reference_manager.nudge_selected_corner(dx, dy)
+
+        blk_item, rect_item = self.viewer.sel_rot_item()
+        sel_item = blk_item or rect_item
+        if sel_item is None:
+            return False
+        if isinstance(sel_item, TextBlockItem) and sel_item.editing_mode:
+            return False
+
+        self._nudge_item(sel_item, dx, dy)
+        return True
+
+    def _nudge_item(self, sel_item, dx: float, dy: float):
+        if self._nudge_target is not sel_item:
+            self.flush_nudge()
+            self._nudge_target = sel_item
+            if isinstance(sel_item, TextBlockItem):
+                self._nudge_old_state = TextBlockState.from_item(sel_item)
+            else:
+                self._nudge_old_state = RectState.from_item(sel_item)
+
+        sel_item.setPos(sel_item.pos() + QPointF(dx, dy))
+
+        if self._nudge_timer is None:
+            self._nudge_timer = QtCore.QTimer()
+            self._nudge_timer.setSingleShot(True)
+            self._nudge_timer.timeout.connect(self.flush_nudge)
+        self._nudge_timer.start(400)
+
+    def flush_nudge(self):
+        """Pushes one undo entry covering every nudge since the target item
+        was (re)selected, instead of one per keypress. Called on debounce
+        timeout, on switching the nudge target, and before a page switch can
+        clear the scene (so a pending debounce timer never fires on an item
+        that's already been deleted)."""
+        if self._nudge_timer is not None:
+            self._nudge_timer.stop()
+        sel_item = self._nudge_target
+        old_state = self._nudge_old_state
+        self._nudge_target = None
+        self._nudge_old_state = None
+        if sel_item is None or old_state is None:
+            return
+        if isinstance(sel_item, TextBlockItem):
+            new_state = TextBlockState.from_item(sel_item)
+            if new_state != old_state:
+                sel_item.change_undo.emit(old_state, new_state)
+        elif isinstance(sel_item, MoveableRectItem):
+            new_state = RectState.from_item(sel_item)
+            if new_state != old_state:
+                sel_item.signals.change_undo.emit(old_state, new_state)

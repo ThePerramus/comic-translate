@@ -1164,6 +1164,11 @@ class ImageStateController:
 
     def display_image(self, index: int, switch_page: bool = True):
         if 0 <= index < len(self.main.image_files):
+            # Commit any pending arrow-key-nudge undo entry to the OLD page's
+            # stack before it stops being the active stack below - otherwise
+            # the debounced commit in clear_scene() would land on the new
+            # page's stack instead.
+            self.main.image_viewer.event_handler.flush_nudge()
             if switch_page:
                 self.save_current_image_state()
             self.main.curr_img_idx = index

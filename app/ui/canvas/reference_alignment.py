@@ -23,11 +23,21 @@ class CornerHandle(QGraphicsEllipseItem):
     def __init__(self, index: int):
         super().__init__(-HANDLE_RADIUS, -HANDLE_RADIUS, HANDLE_RADIUS * 2, HANDLE_RADIUS * 2)
         self.index = index
-        self.setBrush(QBrush(QColor(255, 200, 0, 220)))
-        pen = QPen(QColor(0, 0, 0, 220), 2)
+        self.setZValue(1001)
+        self.set_selected(False)
+
+    def set_selected(self, selected: bool):
+        """Visually marks whether this is the handle arrow-key nudges apply
+        to - there's no separate "click to select without dragging" gesture,
+        so this is the only way to see which one is currently targeted."""
+        if selected:
+            self.setBrush(QBrush(QColor(80, 220, 255, 230)))
+            pen = QPen(QColor(0, 0, 0, 230), 3)
+        else:
+            self.setBrush(QBrush(QColor(255, 200, 0, 220)))
+            pen = QPen(QColor(0, 0, 0, 220), 2)
         pen.setCosmetic(True)
         self.setPen(pen)
-        self.setZValue(1001)
 
 
 class ReferenceAlignmentManager:
@@ -47,6 +57,11 @@ class ReferenceAlignmentManager:
         self.corners: list[QPointF] = []
         self.opacity: float = 0.5
         self.dragging_index: int | None = None
+        # The handle arrow-key nudges apply to - set the moment a corner is
+        # dragged, and stays targeted (even after releasing) until a
+        # different one is dragged, so a rough mouse drag can be followed by
+        # fine keyboard adjustment without needing a separate "select" click.
+        self.selected_corner_index: int | None = None
         self._original_scene_rect: QRectF | None = None
 
     @property
@@ -93,6 +108,8 @@ class ReferenceAlignmentManager:
             handle.setPos(pt)
             self._scene.addItem(handle)
             self.handles.append(handle)
+        self.selected_corner_index = 0
+        self.handles[0].set_selected(True)
 
         self._apply_transform()
         self._update_scene_rect()
@@ -111,6 +128,7 @@ class ReferenceAlignmentManager:
         self.ref_path = None
         self.ref_image = None
         self.dragging_index = None
+        self.selected_corner_index = None
         # Restore the normal page-only scrollable area (see _update_scene_rect).
         if self._original_scene_rect is not None:
             self.viewer.setSceneRect(self._original_scene_rect)
@@ -129,6 +147,11 @@ class ReferenceAlignmentManager:
 
     def begin_drag(self, index: int):
         self.dragging_index = index
+        if self.selected_corner_index != index:
+            if self.selected_corner_index is not None:
+                self.handles[self.selected_corner_index].set_selected(False)
+            self.selected_corner_index = index
+            self.handles[index].set_selected(True)
 
     def drag_to(self, scene_pos: QPointF):
         if self.dragging_index is None:
@@ -140,6 +163,22 @@ class ReferenceAlignmentManager:
 
     def end_drag(self):
         self.dragging_index = None
+
+    def nudge_selected_corner(self, dx: float, dy: float) -> bool:
+        """Moves the currently selected corner handle by (dx, dy) - for fine
+        keyboard adjustment where a mouse drag is too coarse. A corner becomes
+        selected the moment you start dragging it and stays selected (even
+        after releasing) until a different one is dragged."""
+        if self.selected_corner_index is None or not self.active:
+            return False
+        idx = self.selected_corner_index
+        pt = self.corners[idx]
+        new_pt = QPointF(pt.x() + dx, pt.y() + dy)
+        self.corners[idx] = new_pt
+        self.handles[idx].setPos(new_pt)
+        self._apply_transform()
+        self._update_scene_rect()
+        return True
 
     def _update_scene_rect(self):
         """A corner dragged outside the page is otherwise unreachable: QGraphicsView
