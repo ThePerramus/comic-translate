@@ -507,6 +507,14 @@ class ToolStateMixin:
                     return
                 saved_corners = None
 
+            if saved_corners is None:
+                # Best-effort automatic starting position instead of always
+                # defaulting to "stretch the reference over the whole page" -
+                # a bad guess is never worse than that default (you still drag
+                # the same 4 corners to fix it), a good one saves doing it by
+                # hand on every single page.
+                saved_corners = self._auto_align_corners(file_path, ref_path)
+
             started = self.image_viewer.reference_manager.start(file_path, ref_path, saved_corners)
             if not started:
                 self.load_reference_button.setChecked(False)
@@ -519,6 +527,147 @@ class ToolStateMixin:
             self.image_viewer.reference_manager.cancel()
             self.set_tool(None)
             self.confirm_reference_button.setEnabled(False)
+
+    def _auto_align_corners(self, file_path: str, ref_path: str):
+        """Best-effort automatic starting alignment: detect text boxes on
+        both the HQ page and the reference page (reusing the same detector
+        as the Detect step), match them by reading order/position, and fit a
+        perspective transform from the matches. Returns 4 [x, y] points -
+        where the reference image's own corners should land in the HQ page's
+        coordinates - or None if there weren't enough confident matches to
+        bother; the manual corner drag is the fallback either way, this only
+        changes where the handles start."""
+        try:
+            from modules.detection.processor import TextBlockDetector
+            from modules.utils.textblock import sort_blk_list
+        except Exception:
+            return None
+
+        hq_img = self.image_data.get(file_path)
+        if hq_img is None:
+            try:
+                hq_img = self.load_image(file_path)
+            except Exception:
+                return None
+        ensure_path_materialized(ref_path)
+        ref_img = imk.read_image(ref_path)
+        if hq_img is None or ref_img is None:
+            return None
+
+        try:
+            detector = TextBlockDetector(self.settings_page)
+            # Reuse an already-detected page's blocks instead of re-running
+            # detection on it - the reference image never has one to reuse.
+            hq_state_blocks = self.image_states.get(file_path, {}).get('blk_list')
+            hq_blocks = list(hq_state_blocks) if hq_state_blocks else detector.detect(hq_img)
+            ref_blocks = detector.detect(ref_img)
+        except Exception:
+            return None
+
+        if len(hq_blocks) < 4 or len(ref_blocks) < 4:
+            return None
+
+        hq_blocks = sort_blk_list(hq_blocks)
+        ref_blocks = sort_blk_list(ref_blocks)
+
+        hq_h, hq_w = hq_img.shape[:2]
+        ref_h, ref_w = ref_img.shape[:2]
+
+        # Match by position normalized to each image's own size, so a
+        # different-resolution/aspect scan still lines up by relative
+        # location on the page rather than raw pixel coordinates.
+        hq_norm = [(float(b.center[0]) / hq_w, float(b.center[1]) / hq_h) for b in hq_blocks]
+        ref_norm = [(float(b.center[0]) / ref_w, float(b.center[1]) / ref_h) for b in ref_blocks]
+
+        max_dist = 0.15  # loose gate: 15% of page size: works across the count/
+                          # order mismatches expected between two editions.
+        used_ref = set()
+        src_pts, dst_pts = [], []
+        for i, (hx, hy) in enumerate(hq_norm):
+            best_j, best_d = None, None
+            for j, (rx, ry) in enumerate(ref_norm):
+                if j in used_ref:
+                    continue
+                d = (hx - rx) ** 2 + (hy - ry) ** 2
+                if best_d is None or d < best_d:
+                    best_d, best_j = d, j
+            if best_j is not None and best_d <= max_dist ** 2:
+                used_ref.add(best_j)
+                src_pts.append(ref_blocks[best_j].center)
+                dst_pts.append(hq_blocks[i].center)
+
+        if len(src_pts) < 4:
+            return None
+
+        matrix = self._fit_homography_robust(np.array(src_pts, dtype=np.float64),
+                                              np.array(dst_pts, dtype=np.float64))
+        if matrix is None:
+            return None
+
+        ref_corners = np.array([[0, 0], [ref_w, 0], [ref_w, ref_h], [0, ref_h]], dtype=np.float64)
+        ones = np.ones((4, 1))
+        mapped = np.hstack([ref_corners, ones]) @ matrix.T
+        mapped = mapped[:, :2] / mapped[:, 2:3]
+        return mapped.tolist()
+
+    @staticmethod
+    def _solve_homography_lstsq(src: np.ndarray, dst: np.ndarray):
+        """3x3 homography from N>=4 point correspondences via least squares -
+        the same Direct Linear Transform imk.get_perspective_transform uses,
+        generalized past its exactly-4-points square solve since automatic
+        matches need outlier tolerance a single exact fit can't provide."""
+        n = src.shape[0]
+        A = np.zeros((2 * n, 8))
+        b = np.zeros(2 * n)
+        xs, ys = src[:, 0], src[:, 1]
+        xd, yd = dst[:, 0], dst[:, 1]
+        A[0::2, 0] = xs
+        A[0::2, 1] = ys
+        A[0::2, 2] = 1
+        A[0::2, 6] = -xs * xd
+        A[0::2, 7] = -ys * xd
+        b[0::2] = xd
+        A[1::2, 3] = xs
+        A[1::2, 4] = ys
+        A[1::2, 5] = 1
+        A[1::2, 6] = -xs * yd
+        A[1::2, 7] = -ys * yd
+        b[1::2] = yd
+        try:
+            h, _residuals, rank, _sv = np.linalg.lstsq(A, b, rcond=None)
+        except np.linalg.LinAlgError:
+            return None
+        if rank < 8:
+            return None
+        return np.append(h, 1).reshape(3, 3)
+
+    @classmethod
+    def _fit_homography_robust(cls, src: np.ndarray, dst: np.ndarray):
+        """Fits _solve_homography_lstsq, then iteratively drops the single
+        worst-fitting point and refits while its reprojection error is
+        clearly out of line with the rest - a small, dependency-free stand-in
+        for RANSAC, adequate for the modest point counts (a page's detected
+        text boxes) this is used for."""
+        pts_src, pts_dst = src, dst
+        matrix = None
+        for _ in range(len(src) - 4 + 1):
+            if len(pts_src) < 4:
+                return None
+            matrix = cls._solve_homography_lstsq(pts_src, pts_dst)
+            if matrix is None:
+                return None
+            ones = np.ones((len(pts_src), 1))
+            mapped = np.hstack([pts_src, ones]) @ matrix.T
+            mapped = mapped[:, :2] / mapped[:, 2:3]
+            errors = np.linalg.norm(mapped - pts_dst, axis=1)
+            worst_idx = int(np.argmax(errors))
+            worst = errors[worst_idx]
+            median = float(np.median(errors))
+            if worst < max(25.0, median * 3):
+                break
+            pts_src = np.delete(pts_src, worst_idx, axis=0)
+            pts_dst = np.delete(pts_dst, worst_idx, axis=0)
+        return matrix
 
     def confirm_reference_alignment(self):
         result = self.image_viewer.reference_manager.confirm()
