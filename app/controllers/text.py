@@ -541,6 +541,14 @@ class TextController:
             command.finalize_new_state()
             self.main.push_command(command)
 
+    def justify_align(self):
+        if self.main.curr_tblock_item:
+            item = self.main.curr_tblock_item
+            command = TextFormatCommand(self.main.image_viewer, item)
+            item.set_alignment(QtCore.Qt.AlignmentFlag.AlignJustify)
+            command.finalize_new_state()
+            self.main.push_command(command)
+
     def bold(self):
         if self.main.curr_tblock_item:
             item = self.main.curr_tblock_item
@@ -624,6 +632,7 @@ class TextController:
         self.main.alignment_tool_group.get_button_group().buttons()[0].clicked.disconnect(self.left_align)
         self.main.alignment_tool_group.get_button_group().buttons()[1].clicked.disconnect(self.center_align)
         self.main.alignment_tool_group.get_button_group().buttons()[2].clicked.disconnect(self.right_align)
+        self.main.alignment_tool_group.get_button_group().buttons()[3].clicked.disconnect(self.justify_align)
 
     def unblock_text_item_widgets(self, widgets):
         # Unblock signals
@@ -637,6 +646,7 @@ class TextController:
         self.main.alignment_tool_group.get_button_group().buttons()[0].clicked.connect(self.left_align)
         self.main.alignment_tool_group.get_button_group().buttons()[1].clicked.connect(self.center_align)
         self.main.alignment_tool_group.get_button_group().buttons()[2].clicked.connect(self.right_align)
+        self.main.alignment_tool_group.get_button_group().buttons()[3].clicked.connect(self.justify_align)
 
     def set_values_for_blk_item(self, text_item: TextBlockItem):
 
@@ -676,6 +686,7 @@ class TextController:
                 QtCore.Qt.AlignmentFlag.AlignLeft: 0,
                 QtCore.Qt.AlignmentFlag.AlignCenter: 1,
                 QtCore.Qt.AlignmentFlag.AlignRight: 2,
+                QtCore.Qt.AlignmentFlag.AlignJustify: 3,
             }
 
             alignment = text_item.alignment
@@ -740,6 +751,7 @@ class TextController:
                 QtCore.Qt.AlignmentFlag.AlignLeft: 0,
                 QtCore.Qt.AlignmentFlag.AlignCenter: 1,
                 QtCore.Qt.AlignmentFlag.AlignRight: 2,
+                QtCore.Qt.AlignmentFlag.AlignJustify: 3,
             }
 
             button_group = self.main.alignment_tool_group.get_button_group()

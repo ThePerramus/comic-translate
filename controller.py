@@ -258,6 +258,7 @@ class ComicTranslate(ComicTranslateUI):
         self.alignment_tool_group.get_button_group().buttons()[0].clicked.connect(self.text_ctrl.left_align)
         self.alignment_tool_group.get_button_group().buttons()[1].clicked.connect(self.text_ctrl.center_align)
         self.alignment_tool_group.get_button_group().buttons()[2].clicked.connect(self.text_ctrl.right_align)
+        self.alignment_tool_group.get_button_group().buttons()[3].clicked.connect(self.text_ctrl.justify_align)
         self.bold_button.clicked.connect(self.text_ctrl.bold)
         self.italic_button.clicked.connect(self.text_ctrl.italic)
         self.underline_button.clicked.connect(self.text_ctrl.underline)

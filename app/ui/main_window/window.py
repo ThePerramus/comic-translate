@@ -135,6 +135,7 @@ class ComicTranslateUI(
             0: QtCore.Qt.AlignmentFlag.AlignLeft,
             1: QtCore.Qt.AlignmentFlag.AlignCenter,
             2: QtCore.Qt.AlignmentFlag.AlignRight,
+            3: QtCore.Qt.AlignmentFlag.AlignJustify,
         }
 
         self._init_ui()
