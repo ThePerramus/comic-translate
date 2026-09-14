@@ -398,29 +398,6 @@ class TextBlockItem(QGraphicsTextItem):
         
         self.update()
 
-    @staticmethod
-    def _apply_justify_last_line_fix(doc):
-        """Qt's own AlignJustify already leaves a paragraph's final wrapped
-        line un-stretched (good - that's the "don't expand it" part), but it
-        defaults that line to the left edge. Comic lettering convention
-        favors it flush right instead, so nudge just that one QTextLine's x
-        position after each layout pass - the other lines (the ones Qt does
-        stretch) are left untouched. Uses line 0's x as the "natural left
-        edge" reference rather than the last line's own current x, so this
-        stays idempotent across repeated paint() calls between actual
-        relayouts (no drift from re-applying the shift on top of itself)."""
-        _ = doc.size()  # ensure the layout is up to date before inspecting it
-        block = doc.firstBlock()
-        while block.isValid():
-            layout = block.layout()
-            line_count = layout.lineCount()
-            if line_count >= 2:
-                left_edge_x = layout.lineAt(0).position().x()
-                last_line = layout.lineAt(line_count - 1)
-                shift = max(0.0, last_line.width() - last_line.naturalTextWidth())
-                last_line.setPosition(QPointF(left_edge_x + shift, last_line.position().y()))
-            block = block.next()
-
     def paint(
         self,
         painter: QPainter,
@@ -428,16 +405,11 @@ class TextBlockItem(QGraphicsTextItem):
         widget: QWidget = None
     ):
 
-        if self.alignment == Qt.AlignmentFlag.AlignJustify:
-            self._apply_justify_last_line_fix(self.document())
-
         # Then handle any selection outlines
         if self.selection_outlines:
             painter.save()
             for outline_info in self.selection_outlines:
                 doc = self._clone_outline_document()
-                if self.alignment == Qt.AlignmentFlag.AlignJustify:
-                    self._apply_justify_last_line_fix(doc)
 
                 cursor = QTextCursor(doc)
                 cursor.select(QTextCursor.SelectionType.Document)

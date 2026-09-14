@@ -212,7 +212,7 @@ class WorkspaceMixin:
             {"svg": "tabler--align-left.svg", "checkable": True, "tooltip": "Align Left"},
             {"svg": "tabler--align-center.svg", "checkable": True, "tooltip": "Align Center"},
             {"svg": "tabler--align-right.svg", "checkable": True, "tooltip": "Align Right"},
-            {"svg": "tabler--align-justified.svg", "checkable": True, "tooltip": "Justify (last line right-aligned)"},
+            {"svg": "tabler--align-justified.svg", "checkable": True, "tooltip": "Justify (last line left-aligned)"},
         ]
         self.alignment_tool_group.set_button_list(alignment_tools)
         self.alignment_tool_group.set_dayu_checked(1)
