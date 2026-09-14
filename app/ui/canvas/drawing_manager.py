@@ -577,7 +577,15 @@ class DrawingManager:
         return self.pencil_color
 
     def create_inpaint_cursor(self, cursor_type, size):
-        size = max(1, size)
+        # Windows (and other platforms) cap how large a custom cursor bitmap
+        # can actually display - past that cap the OS cursor icon silently
+        # stops growing no matter what value we hand it, which looks exactly
+        # like "the size slider does nothing" on a high-resolution page where
+        # the real (scaled) size regularly exceeds it. Clamp the cursor
+        # bitmap itself; the scene-space hover-preview circle (drawn as a
+        # normal graphics item, not an OS cursor) has no such limit and stays
+        # the source of truth for the actual stroke size at any size.
+        size = max(1, min(size, 48))
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.transparent)
         painter = QPainter(pixmap)

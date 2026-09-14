@@ -218,6 +218,31 @@ class ToolStateMixin:
             return True
         return bool(self.reference_book_handler.file_paths)
 
+    @staticmethod
+    def _square_erode(mask: np.ndarray, margin: int) -> np.ndarray:
+        """Binary erosion by a square (2*margin+1) kernel, treating anything
+        outside the array as background - implemented directly with numpy
+        since imk.erode()/get_structuring_element(MORPH_ELLIPSE, ...) turned
+        out not to behave like a normal binary erosion at small kernel sizes
+        (the mahotas disk() approximation collapses to a single center pixel,
+        and mh.erode itself doesn't treat out-of-bounds as background), and a
+        square kernel is separable so this stays cheap even for a modest
+        margin. Verified directly against imk.erode's actual behavior before
+        writing this - it left every pixel of an all-foreground mask
+        unchanged, corners included, regardless of kernel size."""
+        if margin <= 0:
+            return mask
+        h, w = mask.shape
+        padded = np.pad(mask, ((0, 0), (margin, margin)), mode='constant', constant_values=False)
+        result = np.ones_like(mask, dtype=bool)
+        for shift in range(2 * margin + 1):
+            result &= padded[:, shift:shift + w]
+        padded = np.pad(result, ((margin, margin), (0, 0)), mode='constant', constant_values=False)
+        result = np.ones_like(mask, dtype=bool)
+        for shift in range(2 * margin + 1):
+            result &= padded[shift:shift + h, :]
+        return result
+
     def auto_reveal_pages(self, file_paths: list) -> bool:
         """For each page, replaces every existing (Segment+Clean) patch's
         opaque pixels with the corresponding pixels from that page's aligned
@@ -249,7 +274,24 @@ class ToolStateMixin:
                 ref_crop = reveal_source[y:y + h, x:x + w, :3]
                 if ref_crop.shape[:2] != img.shape[:2]:
                     continue
-                mask = img[:, :, 3] > 0
+                # Clean's mask is deliberately a bit generous (any leftover
+                # untouched foreign-text pixel looks worse for ML inpaint than
+                # painting a few extra background pixels). That's fine for
+                # inpainting - the fill blends with its surroundings - but a
+                # reveal pastes EXACT reference pixels, so the same margin
+                # shows up as a visible sliver of the reference's own artwork
+                # around the text. Shrink the mask a little before revealing;
+                # whatever falls outside it just keeps Clean's own result,
+                # which is the "equilibrio" - Clean's fill only has to be good
+                # enough at the very edge, not across the whole patch, since
+                # revealing still covers everything inside.
+                raw_mask = img[:, :, 3] > 0
+                if not raw_mask.any():
+                    continue
+                page_h, page_w = reveal_source.shape[:2]
+                diagonal = (page_h ** 2 + page_w ** 2) ** 0.5
+                margin = max(1, round(2 * diagonal / 1000.0))
+                mask = self._square_erode(raw_mask, margin)
                 if not mask.any():
                     continue
                 new_img = img.copy()
