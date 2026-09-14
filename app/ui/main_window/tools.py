@@ -529,17 +529,25 @@ class ToolStateMixin:
             self.confirm_reference_button.setEnabled(False)
 
     def _auto_align_corners(self, file_path: str, ref_path: str):
-        """Best-effort automatic starting alignment: detect text boxes on
-        both the HQ page and the reference page (reusing the same detector
-        as the Detect step), match them by reading order/position, and fit a
-        perspective transform from the matches. Returns 4 [x, y] points -
-        where the reference image's own corners should land in the HQ page's
-        coordinates - or None if there weren't enough confident matches to
-        bother; the manual corner drag is the fallback either way, this only
-        changes where the handles start."""
+        """Best-effort automatic starting alignment: detect text boxes AND
+        rough panel boundaries on both the HQ page and the reference page,
+        match them by position, and fit a perspective transform from the
+        matches. Returns 4 [x, y] points - where the reference image's own
+        corners should land in the HQ page's coordinates - or None if there
+        weren't enough confident matches to bother; the manual corner drag is
+        the fallback either way, this only changes where the handles start.
+
+        Text blocks alone tend to cluster wherever the dialogue is (often the
+        upper/middle area of a page), leaving panels with little or no text
+        poorly constrained - the fit fine near the text and drifting further
+        from it. Panel boxes (from detect_panel_boxes(), a plain connected-
+        components heuristic, no model) are far more evenly spread across the
+        whole page, so mixing both kinds of points in as one set of "things
+        that should land in the same relative spot on both scans" gives much
+        better coverage without needing a second detection model."""
         try:
             from modules.detection.processor import TextBlockDetector
-            from modules.utils.textblock import sort_blk_list
+            from modules.utils.image_utils import detect_panel_boxes
         except Exception:
             return None
 
@@ -554,6 +562,12 @@ class ToolStateMixin:
         if hq_img is None or ref_img is None:
             return None
 
+        def block_centers(blocks):
+            return [(float(b.center[0]), float(b.center[1])) for b in blocks]
+
+        def box_centers(boxes):
+            return [((x1 + x2) / 2.0, (y1 + y2) / 2.0) for x1, y1, x2, y2 in boxes]
+
         try:
             detector = TextBlockDetector(self.settings_page)
             # Reuse an already-detected page's blocks instead of re-running
@@ -562,13 +576,19 @@ class ToolStateMixin:
             hq_blocks = list(hq_state_blocks) if hq_state_blocks else detector.detect(hq_img)
             ref_blocks = detector.detect(ref_img)
         except Exception:
-            return None
+            hq_blocks, ref_blocks = [], []
 
-        if len(hq_blocks) < 4 or len(ref_blocks) < 4:
-            return None
+        try:
+            hq_panels = detect_panel_boxes(hq_img)
+            ref_panels = detect_panel_boxes(ref_img)
+        except Exception:
+            hq_panels, ref_panels = [], []
 
-        hq_blocks = sort_blk_list(hq_blocks)
-        ref_blocks = sort_blk_list(ref_blocks)
+        hq_points = block_centers(hq_blocks) + box_centers(hq_panels)
+        ref_points = block_centers(ref_blocks) + box_centers(ref_panels)
+
+        if len(hq_points) < 4 or len(ref_points) < 4:
+            return None
 
         hq_h, hq_w = hq_img.shape[:2]
         ref_h, ref_w = ref_img.shape[:2]
@@ -576,8 +596,8 @@ class ToolStateMixin:
         # Match by position normalized to each image's own size, so a
         # different-resolution/aspect scan still lines up by relative
         # location on the page rather than raw pixel coordinates.
-        hq_norm = [(float(b.center[0]) / hq_w, float(b.center[1]) / hq_h) for b in hq_blocks]
-        ref_norm = [(float(b.center[0]) / ref_w, float(b.center[1]) / ref_h) for b in ref_blocks]
+        hq_norm = [(x / hq_w, y / hq_h) for x, y in hq_points]
+        ref_norm = [(x / ref_w, y / ref_h) for x, y in ref_points]
 
         max_dist = 0.15  # loose gate: 15% of page size: works across the count/
                           # order mismatches expected between two editions.
@@ -593,8 +613,8 @@ class ToolStateMixin:
                     best_d, best_j = d, j
             if best_j is not None and best_d <= max_dist ** 2:
                 used_ref.add(best_j)
-                src_pts.append(ref_blocks[best_j].center)
-                dst_pts.append(hq_blocks[i].center)
+                src_pts.append(ref_points[best_j])
+                dst_pts.append(hq_points[i])
 
         if len(src_pts) < 4:
             return None

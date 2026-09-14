@@ -8,6 +8,60 @@ from modules.utils.textblock import TextBlock
 from modules.detection.utils.content import get_inpaint_mask
 
 
+def detect_panel_boxes(image: np.ndarray, min_area_fraction: float = 0.02) -> list[tuple[int, int, int, int]]:
+    """Rough panel-boundary detection using plain connected-components, no ML
+    model - comic panels are almost always large, roughly-rectangular regions
+    separated by gutters/borders, so the biggest connected regions of either
+    polarity (bright interiors on a dark border, or the reverse) are a decent
+    proxy for "where the panels are", used as extra geometric reference points
+    for automatic page alignment where text/bubbles alone leave gaps (e.g. a
+    panel with little or no dialogue near it).
+
+    Deliberately a heuristic, not a real panel segmenter: bleeding/borderless
+    panels or heavily textured art can make it find too few/too many regions,
+    in which case it returns whatever it found (including an empty list) -
+    callers are expected to treat this as optional extra signal, never a hard
+    requirement.
+    """
+    gray = imk.to_gray(image)
+    _thresh_val, binary = imk.otsu_threshold(gray)
+
+    h, w = gray.shape[:2]
+    total_area = h * w
+    min_area = total_area * min_area_fraction
+
+    def boxes_from_mask(mask: np.ndarray) -> list[tuple[int, int, int, int]]:
+        num_labels, _labels, stats, _centroids = imk.connected_components_with_stats(mask, connectivity=4)
+        found = []
+        for i in range(1, num_labels):  # label 0 is background
+            x, y, bw, bh, area = stats[i]
+            if area < min_area:
+                continue
+            # Reject slivers (a wide gutter line, not a panel) and anything
+            # covering almost the whole page. The page's own background/
+            # gutters connect around and between every real panel into one
+            # irregular, thin (donut/cross-shaped) region - its actual pixel
+            # area can look small even though its bounding box spans nearly
+            # the entire page, so both checks are needed: filled-area for
+            # solid oversized blobs, bounding-box span for that gutter shape.
+            if bw < w * 0.05 or bh < h * 0.05:
+                continue
+            if area > total_area * 0.9:
+                continue
+            if bw > w * 0.95 and bh > h * 0.95:
+                continue
+            found.append((int(x), int(y), int(x + bw), int(y + bh)))
+        return found
+
+    candidates = [
+        boxes for boxes in (boxes_from_mask(binary), boxes_from_mask(255 - binary))
+        if 1 <= len(boxes) <= 12  # a comic page realistically has a handful of panels
+    ]
+    if not candidates:
+        return []
+    return max(candidates, key=len)
+
+
 def build_bubble_clip_mask(
     mask_shape: tuple[int, int],
     bounds: tuple[int, int, int, int],
