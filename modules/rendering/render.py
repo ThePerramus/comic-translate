@@ -443,26 +443,40 @@ def manual_wrap(
             continue
 
         vertical = is_vertical_block(blk, trg_lng_cd)
+        no_space = is_no_space_lang(trg_lng_cd)
 
-        translation, font_size = pyside_word_wrap(
-            translation, 
-            font_family, 
-            width, 
+        wrapped, font_size = pyside_word_wrap(
+            translation,
+            font_family,
+            width,
             height,
-            line_spacing, 
-            outline_width, 
-            bold, 
-            italic, 
+            line_spacing,
+            outline_width,
+            bold,
+            italic,
             underline,
-            alignment, 
-            direction, 
-            init_font_size, 
+            alignment,
+            direction,
+            init_font_size,
             min_font_size,
             vertical,
-            is_no_space_lang(trg_lng_cd)
+            no_space
         )
-        
-        main_page.blk_rendered.emit(translation, font_size, blk, image_path)
+
+        # pyside_word_wrap bakes hard line breaks into the text purely to
+        # *measure* whether it fits at a given font size - for a normal
+        # horizontal, space-based language those breaks then linger as real
+        # characters in the rendered text box (and in the translation edit
+        # field), which the user has to delete by hand after resizing the
+        # box or changing font size. The manual controller instead makes the
+        # created TextBlockItem live-wrap to its own box width (see
+        # on_blk_rendered), so here we keep the *font size* pyside_word_wrap
+        # found but emit the original, un-broken translation. Vertical and
+        # no-space (CJK) layouts don't live-wrap the same way and still need
+        # the baked-in breaks.
+        final_text = translation if not (vertical or no_space) else wrapped
+
+        main_page.blk_rendered.emit(final_text, font_size, blk, image_path)
 
 
 

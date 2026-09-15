@@ -154,6 +154,16 @@ class TextController:
         text_item = self.main.image_viewer.add_text_item(properties)
         text_item.set_plain_text(text)
 
+        # manual_wrap() no longer bakes hard line breaks into the text for a
+        # normal horizontal, space-based language (see its comment) - it's
+        # counting on this box genuinely word-wrapping at the bubble's own
+        # width instead, so the text keeps reflowing correctly if the font
+        # size changes or the box gets resized later, instead of leaving
+        # stale breaks the user has to delete by hand. Vertical/no-space
+        # (CJK) text still arrives pre-wrapped and uses its own layout.
+        if not vertical and not is_no_space_lang(trg_lng_cd):
+            text_item.setTextWidth(blk.xywh[2])
+
         # Update or append the block in the main controller's blk_list
         existing_idx = next(
             (
