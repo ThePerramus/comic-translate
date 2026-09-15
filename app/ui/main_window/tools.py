@@ -480,6 +480,7 @@ class ToolStateMixin:
         self.load_reference_button.setChecked(active)
         self.load_reference_button.blockSignals(False)
         self.confirm_reference_button.setEnabled(active)
+        self.reset_reference_button.setEnabled(active)
 
     def toggle_reference_alignment(self):
         """Overlay a second scan of the current page (semi-transparent, 4 draggable
@@ -523,10 +524,29 @@ class ToolStateMixin:
             self.image_viewer.reference_manager.set_opacity(self.reference_opacity_slider.value() / 100.0)
             self.set_tool("align_reference")
             self.confirm_reference_button.setEnabled(True)
+            self.reset_reference_button.setEnabled(True)
         else:
             self.image_viewer.reference_manager.cancel()
             self.set_tool(None)
             self.confirm_reference_button.setEnabled(False)
+            self.reset_reference_button.setEnabled(False)
+
+    def reset_reference_alignment(self):
+        """Restarts the in-progress alignment at the default full-page
+        rectangle, discarding whatever corners it currently has. The
+        automatic starting guess (_auto_align_corners) is only ever a
+        best-effort head start - on a bad page it can put a corner so far
+        outside the visible area that dragging it back by hand (even with
+        the scene-rect-expansion that normally makes off-page handles
+        reachable) is impractical. This is the escape hatch: same manual
+        drag-from-scratch flow as if auto-align had found nothing at all."""
+        rm = self.image_viewer.reference_manager
+        if not rm.active:
+            return
+        file_path, ref_path = rm.active_file_path, rm.ref_path
+        if not rm.start(file_path, ref_path, saved_corners=None):
+            return
+        rm.set_opacity(self.reference_opacity_slider.value() / 100.0)
 
     def _auto_align_corners(self, file_path: str, ref_path: str):
         """Best-effort automatic starting alignment: detect text boxes AND
@@ -701,6 +721,7 @@ class ToolStateMixin:
         }
         self.load_reference_button.setChecked(False)
         self.confirm_reference_button.setEnabled(False)
+        self.reset_reference_button.setEnabled(False)
         self.set_tool(None)
         self._sync_reveal_source()
         self._sync_hbutton_group_for_reference()

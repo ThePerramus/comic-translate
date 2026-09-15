@@ -436,8 +436,16 @@ class WorkspaceMixin:
         self.confirm_reference_button.clicked.connect(self.confirm_reference_alignment)
         self.confirm_reference_button.setEnabled(False)
 
+        self.reset_reference_button = self.create_tool_button(svg="refresh_line.svg")
+        self.reset_reference_button.setToolTip(self.tr(
+            "Reset Alignment to the Default Full-Page Rectangle "
+            "(Use This if the Automatic Starting Guess Is Way Off and Its Corners Are Unreachable)"))
+        self.reset_reference_button.clicked.connect(self.reset_reference_alignment)
+        self.reset_reference_button.setEnabled(False)
+
         ref_tools_lay.addWidget(self.load_reference_button)
         ref_tools_lay.addWidget(self.confirm_reference_button)
+        ref_tools_lay.addWidget(self.reset_reference_button)
         ref_tools_lay.addStretch()
 
         self.reference_opacity_label = MLabel(self.tr("Reference Overlay Opacity (While Aligning Only)"))
