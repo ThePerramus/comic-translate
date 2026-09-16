@@ -13,6 +13,7 @@ from modules.utils.textblock import adjust_blks_size
 from modules.detection.utils.geometry import shrink_bbox
 from app.ui.canvas.text.vertical_layout import VerticalTextDocumentLayout
 from modules.utils.language_utils import get_language_code, is_no_space_lang, is_vertical_language_code
+from modules.utils.hyphenation import hyphenate_text
 
 from dataclasses import dataclass
 
@@ -61,7 +62,9 @@ def _split_at_fitting_hyphen(
 
     best_split = None
     for idx, char in enumerate(word):
-        if char != "-" or idx <= 0 or idx >= len(word) - 1:
+        # "-" for real hyphenated compounds, "­" (soft hyphen) for the
+        # syllable break points hyphenate_text() inserts into long words.
+        if char not in ("-", "­") or idx <= 0 or idx >= len(word) - 1:
             continue
         prefix = word[: idx + 1]
         candidate = prefix if not current_line else f"{current_line} {prefix}"
@@ -445,8 +448,18 @@ def manual_wrap(
         vertical = is_vertical_block(blk, trg_lng_cd)
         no_space = is_no_space_lang(trg_lng_cd)
 
+        # For a normal horizontal, space-based language, insert invisible
+        # soft hyphens at valid syllable breaks in long words first (see
+        # hyphenate_text) - Qt's live word-wrap (see below) then hyphenates
+        # them exactly where it actually needs to, same as it would for a
+        # real "-" in a compound word. Vertical/no-space (CJK) text has no
+        # such syllable concept and isn't touched.
+        source_text = translation
+        if not (vertical or no_space):
+            source_text = hyphenate_text(translation, trg_lng_cd)
+
         wrapped, font_size = pyside_word_wrap(
-            translation,
+            source_text,
             font_family,
             width,
             height,
@@ -471,10 +484,10 @@ def manual_wrap(
         # box or changing font size. The manual controller instead makes the
         # created TextBlockItem live-wrap to its own box width (see
         # on_blk_rendered), so here we keep the *font size* pyside_word_wrap
-        # found but emit the original, un-broken translation. Vertical and
-        # no-space (CJK) layouts don't live-wrap the same way and still need
-        # the baked-in breaks.
-        final_text = translation if not (vertical or no_space) else wrapped
+        # found but emit source_text (un-broken, save for the invisible
+        # soft hyphens). Vertical and no-space (CJK) layouts don't live-wrap
+        # the same way and still need the baked-in hard breaks.
+        final_text = source_text if not (vertical or no_space) else wrapped
 
         main_page.blk_rendered.emit(final_text, font_size, blk, image_path)
 
