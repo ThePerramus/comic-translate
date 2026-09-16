@@ -21,6 +21,7 @@ from modules.utils.image_utils import generate_mask, get_smart_text_color
 from modules.utils.language_utils import get_language_code, is_no_space_lang
 from modules.utils.translator_utils import get_raw_translation, get_raw_text, format_translations, is_renderable_translation
 from modules.rendering.render import get_best_render_area, pyside_word_wrap, is_vertical_block
+from modules.utils.hyphenation import hyphenate_text
 from modules.utils.device import resolve_device
 from modules.utils.exceptions import InsufficientCreditsException
 from app.path_materialization import ensure_path_materialized
@@ -386,25 +387,45 @@ class BatchProcessor:
                 
                 # Determine if this block should use vertical rendering
                 vertical = is_vertical_block(blk, trg_lng_cd)
+                no_space = is_no_space_lang(trg_lng_cd)
 
-                translation, font_size, rendered_width, rendered_height = pyside_word_wrap(
-                    translation, 
-                    font, 
-                    block_width, 
+                # For a normal horizontal, space-based language, insert
+                # invisible soft hyphens at valid syllable breaks first (see
+                # hyphenate_text) - the created TextBlockItem live-wraps to
+                # its own box width (see TextBlockItem.set_text), so Qt
+                # hyphenates them exactly where it actually needs to instead
+                # of pyside_word_wrap's hard '\n' breaks lingering as real
+                # characters after a later font-size or box-size change.
+                # Vertical/no-space (CJK) text has no such concept and isn't
+                # touched.
+                source_text = translation
+                if not (vertical or no_space):
+                    source_text = hyphenate_text(translation, trg_lng_cd)
+
+                wrapped, font_size, rendered_width, rendered_height = pyside_word_wrap(
+                    source_text,
+                    font,
+                    block_width,
                     block_height,
-                    line_spacing, 
-                    outline_width, 
-                    bold, 
-                    italic, 
+                    line_spacing,
+                    outline_width,
+                    bold,
+                    italic,
                     underline,
-                    alignment, 
-                    direction, 
-                    max_font_size, 
+                    alignment,
+                    direction,
+                    max_font_size,
                     min_font_size,
                     vertical,
-                    is_no_space_lang(trg_lng_cd),
+                    no_space,
                     return_metrics=True
                 )
+
+                # Keep pyside_word_wrap's font-size fit (and its rendered_w/h,
+                # used below for the saved box size) but use source_text (no
+                # hard breaks, just invisible soft hyphens) as what's actually
+                # stored/displayed - same reasoning as the manual render flow.
+                translation = source_text if not (vertical or no_space) else wrapped
                 
                 # Display text if on current page  
                 if image_path == file_on_display:

@@ -191,6 +191,14 @@ class TextBlockItem(QGraphicsTextItem):
             self.set_outline(self.outline_color, self.outline_width)
         else:
             self.set_plain_text(text)
+            # set_plain_text() -> apply_all_attributes() already called
+            # update_text_width(), which hugs textWidth to whatever width the
+            # text's own (possibly hard-wrapped) lines naturally need - here
+            # we're given an explicit width to use instead (the fitted
+            # bubble width), so it takes priority: this is what lets text
+            # with no hard breaks (see hyphenate_text/manual_wrap) genuinely
+            # word-wrap to the bubble instead of collapsing to one long line.
+            self.setTextWidth(width)
 
     def set_plain_text(self, text):
         self.setPlainText(text)
