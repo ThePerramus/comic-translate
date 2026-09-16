@@ -42,8 +42,9 @@ the LQ scan onto it, and reveals the LQ page's own pixels through the holes.
 
 - **Justify alignment** — a fourth option beside left/center/right; the paragraph's final line
   keeps its natural width instead of being stretched.
-- **Live word-wrap** — the manual Render step no longer bakes hard line breaks into the
-  translation; the text box reflows live when the font size or box size changes.
+- **Live word-wrap** — neither the manual Render step nor the automatic "Translate All"
+  pipeline bake hard line breaks into the translation anymore; the text box reflows live
+  when the font size or box size changes.
 - **Syllable hyphenation** — long words that don't fit a narrow bubble break at a real syllable
   boundary instead of overflowing or splitting arbitrarily.
 
