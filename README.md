@@ -3,12 +3,73 @@ English | [한국어](docs/README_ko.md) | [Français](docs/README_fr.md) | [简
 
 <img src="https://i.imgur.com/QUVK6mK.png">
 
+## This Fork
+
+This fork (`ThePerramus/comic-translate`, branch `v2.8.8-work`, based on upstream `v2.8.9`) adds
+a workflow for pages that already have a translation to reuse instead of retranslating them, plus
+several general-purpose editing and lettering improvements built along the way.
+
+### Reference-page reveal workflow
+
+For comics where a high-quality foreign-language scan and a separate, already-translated
+low-quality scan both exist, re-running OCR and translation on the HQ page throws away a
+translation that's already correct. This workflow cleans the HQ page's bubbles as usual, aligns
+the LQ scan onto it, and reveals the LQ page's own pixels through the holes.
+
+- **Manual corner alignment** — drag a semi-transparent overlay of the reference scan by its four
+  corners until its art lines up with the page.
+- **Automatic starting guess** — detects text blocks and panel boundaries on both scans and fits a
+  starting perspective transform from the matches.
+- **Reset Alignment** — one click back to the default full-page rectangle if the automatic guess
+  goes wrong.
+- **Bulk reference books** — load a whole cbz/cbr of the reference edition and pair pages to the
+  working book by index plus an offset.
+- **Piecewise offsets** — set a new offset partway through a book so inserted/divider pages don't
+  throw off every page after them.
+- **Per-page exclusion** — mark an HQ-only bonus page as having no reference counterpart at all.
+- **Reveal Pencil** — an inpainting-style brush that paints with the aligned reference's own pixels
+  instead of a flat color.
+- **Pipeline integration** — on a reference page, Recognize/Translate disable themselves and
+  Render reveals instead of drawing new text.
+- **Full persistence** — alignment, offsets, exclusions, and the reference book's path all survive
+  closing and reopening the project.
+
+### Precision editing
+
+- **Shift-constrain** — hold Shift while drawing with the brush, eraser, pencil, patch eraser, or
+  reveal pencil to lock the stroke to a straight horizontal or vertical line.
+- **Arrow-key nudging** — 1px steps (10px with Shift) for reference-alignment corners and selected
+  text boxes, coalesced into a single undo step.
+
+### Lettering & text rendering
+
+- **Justify alignment** — a fourth option beside left/center/right; the paragraph's final line
+  keeps its natural width instead of being stretched.
+- **Live word-wrap** — the manual Render step no longer bakes hard line breaks into the
+  translation; the text box reflows live when the font size or box size changes.
+- **Syllable hyphenation** — long words that don't fit a narrow bubble break at a real syllable
+  boundary instead of overflowing or splitting arbitrarily.
+
+### Inpainting touch-ups
+
+- **Eyedropper, pencil, patch eraser** — hand tools for touching up cleaned pages, each with its
+  own independently remembered brush size.
+- The patch eraser also fixes a reveal-pencil stroke that ran over the edge of a bubble.
+
+### Stability fixes
+
+Assorted general-purpose fixes made along the way: a Windows heap-corruption crash, rectangular
+text boxes collapsing into ellipses, erased inpaint patches reverting after a project reload, a
+broken brush-size hover preview, an image-cache desync crash, a save/navigation race, and an
+unnecessary forced-login requirement.
+
 ## Intro
 Many Automatic Manga Translators exist. Very few properly support comics of other kinds in other languages. 
 This project was created to utilize the ability of State of the Art (SOTA) Large Language Models (LLMs) like GPT and translate comics from all over the world. 
 
 Currently, it supports translating comics from the following languages: English, Korean, Japanese, French, Simplified Chinese, Traditional Chinese, Russian, German, Dutch, Spanish and Italian. It can translate to the above mentioned and more. 
 
+- [This Fork](#this-fork)
 - [The State of Machine Translation](#the-state-of-machine-translation)
 - [Preview](#comic-samples)
 - [Getting Started](#installation)
