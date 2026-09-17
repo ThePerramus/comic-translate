@@ -26,6 +26,9 @@ the LQ scan onto it, and reveals the LQ page's own pixels through the holes.
 - **Per-page exclusion** — mark an HQ-only bonus page as having no reference counterpart at all.
 - **Reveal Pencil** — an inpainting-style brush that paints with the aligned reference's own pixels
   instead of a flat color.
+- **Content-aware auto-reveal** — reveals only the reference's actual detected text (dilated to
+  keep its anti-aliased/halftone edges), not the whole cleaned rectangle, so an irregular bubble's
+  corners keep Clean's own fill instead of the reference's off-tone scan background.
 - **Pipeline integration** — on a reference page, Recognize/Translate disable themselves and
   Render reveals instead of drawing new text.
 - **Full persistence** — alignment, offsets, exclusions, and the reference book's path all survive
