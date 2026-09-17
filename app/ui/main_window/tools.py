@@ -274,6 +274,7 @@ class ToolStateMixin:
         Returns True if at least one page actually got revealed into."""
         from app.ui.commands.base import _load_patch_image_rgba
         from app.ui.commands.inpaint import PatchEraseCommand
+        from modules.detection.utils.content import detect_content_mask_in_bbox
 
         any_done = False
         for file_path in file_paths:
@@ -297,24 +298,41 @@ class ToolStateMixin:
                 ref_crop = reveal_source[y:y + h, x:x + w, :3]
                 if ref_crop.shape[:2] != img.shape[:2]:
                     continue
-                # Clean's mask is deliberately a bit generous (any leftover
-                # untouched foreign-text pixel looks worse for ML inpaint than
-                # painting a few extra background pixels). That's fine for
-                # inpainting - the fill blends with its surroundings - but a
-                # reveal pastes EXACT reference pixels, so the same margin
-                # shows up as a visible sliver of the reference's own artwork
-                # around the text. Shrink the mask a little before revealing;
-                # whatever falls outside it just keeps Clean's own result,
-                # which is the "equilibrio" - Clean's fill only has to be good
-                # enough at the very edge, not across the whole patch, since
-                # revealing still covers everything inside.
                 raw_mask = img[:, :, 3] > 0
                 if not raw_mask.any():
                     continue
-                page_h, page_w = reveal_source.shape[:2]
-                diagonal = (page_h ** 2 + page_w ** 2) ** 0.5
-                margin = max(1, round(2 * diagonal / 1000.0))
-                mask = self._square_erode(raw_mask, margin)
+
+                # The patch itself is just a plain opaque rectangle (Segment's
+                # actual bubble/content outline only ever determined its
+                # bbox, not its shape) - revealing the whole thing covers an
+                # irregular bubble's corners with the reference's own
+                # artwork/background there, which then had to be cleaned up
+                # by hand with the patch eraser. Detect where the reference's
+                # own text actually is instead (the same content-mask
+                # detector Segment itself uses, just run on the aligned
+                # reference crop instead of this page), and reveal only
+                # that - not the bubble's interior, not the rectangle, just
+                # the ink that's actually being brought over.
+                content_mask = detect_content_mask_in_bbox(ref_crop) > 0
+                if content_mask.any():
+                    mask = content_mask & raw_mask
+                else:
+                    # No content detected (e.g. a genuinely blank bubble) -
+                    # fall back to the previous behavior instead of silently
+                    # revealing nothing. Clean's mask is deliberately a bit
+                    # generous (any leftover untouched foreign-text pixel
+                    # looks worse for ML inpaint than painting a few extra
+                    # background pixels), which is fine for inpainting - the
+                    # fill blends with its surroundings - but a reveal pastes
+                    # EXACT reference pixels, so the same margin would show
+                    # up as a visible sliver of the reference's own artwork
+                    # around the text. Shrink the mask a little first;
+                    # whatever falls outside it just keeps Clean's own
+                    # result.
+                    page_h, page_w = reveal_source.shape[:2]
+                    diagonal = (page_h ** 2 + page_w ** 2) ** 0.5
+                    margin = max(1, round(2 * diagonal / 1000.0))
+                    mask = self._square_erode(raw_mask, margin)
                 if not mask.any():
                     continue
                 new_img = img.copy()
