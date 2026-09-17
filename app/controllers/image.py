@@ -321,6 +321,22 @@ class ImageStateController:
 
         # Reset current_image_index
         self.main.curr_img_idx = -1
+
+        # Reference-page workflow state is per-project, not global - without
+        # this, starting a brand new (non-reference) project while a
+        # reference book was loaded in a previous project left every page
+        # here looking like it "uses the reference workflow" too (Recognize/
+        # Translate disabled, Render refusing to run), since nothing else
+        # ever reset reference_book_handler/reference_images.
+        self.main.reference_book_handler.prepare_files([])
+        self.main.reference_book_path = None
+        self.main.reference_images.clear()
+        self.main.reference_page_offsets = []
+        self.main.reference_excluded_pages.clear()
+        self.main.image_viewer.reference_manager.cancel()
+        self.main._sync_reference_alignment_buttons()
+        self.main._update_reference_offset_label()
+
         self.main.set_project_clean()
 
     def thread_load_images(self, paths: List[str]):
