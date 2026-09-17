@@ -266,6 +266,23 @@ class ToolStateMixin:
             result &= padded[shift:shift + h, :]
         return result
 
+    @staticmethod
+    def _square_dilate(mask: np.ndarray, margin: int) -> np.ndarray:
+        """Binary dilation by a square (2*margin+1) kernel - the OR-based
+        mirror of _square_erode, same separable two-pass approach."""
+        if margin <= 0:
+            return mask
+        h, w = mask.shape
+        padded = np.pad(mask, ((0, 0), (margin, margin)), mode='constant', constant_values=False)
+        result = np.zeros_like(mask, dtype=bool)
+        for shift in range(2 * margin + 1):
+            result |= padded[:, shift:shift + w]
+        padded = np.pad(result, ((margin, margin), (0, 0)), mode='constant', constant_values=False)
+        result = np.zeros_like(mask, dtype=bool)
+        for shift in range(2 * margin + 1):
+            result |= padded[shift:shift + h, :]
+        return result
+
     def auto_reveal_pages(self, file_paths: list) -> bool:
         """For each page, replaces every existing (Segment+Clean) patch's
         opaque pixels with the corresponding pixels from that page's aligned
@@ -302,6 +319,10 @@ class ToolStateMixin:
                 if not raw_mask.any():
                     continue
 
+                page_h, page_w = reveal_source.shape[:2]
+                diagonal = (page_h ** 2 + page_w ** 2) ** 0.5
+                margin = max(1, round(2 * diagonal / 1000.0))
+
                 # The patch itself is just a plain opaque rectangle (Segment's
                 # actual bubble/content outline only ever determined its
                 # bbox, not its shape) - revealing the whole thing covers an
@@ -315,6 +336,14 @@ class ToolStateMixin:
                 # the ink that's actually being brought over.
                 content_mask = detect_content_mask_in_bbox(ref_crop) > 0
                 if content_mask.any():
+                    # A low-quality scan's text is rarely solid-colored
+                    # (halftone dots, JPEG ringing, soft anti-aliasing), so
+                    # the raw content mask only catches each stroke's
+                    # darkest core pixels - revealing just that leaves
+                    # "weak", thinned-out letters next to Clean's own fill.
+                    # Fatten it back out a little so the full stroke width
+                    # comes through.
+                    content_mask = self._square_dilate(content_mask, max(1, margin // 2))
                     mask = content_mask & raw_mask
                 else:
                     # No content detected (e.g. a genuinely blank bubble) -
@@ -329,9 +358,6 @@ class ToolStateMixin:
                     # around the text. Shrink the mask a little first;
                     # whatever falls outside it just keeps Clean's own
                     # result.
-                    page_h, page_w = reveal_source.shape[:2]
-                    diagonal = (page_h ** 2 + page_w ** 2) ** 0.5
-                    margin = max(1, round(2 * diagonal / 1000.0))
                     mask = self._square_erode(raw_mask, margin)
                 if not mask.any():
                     continue
