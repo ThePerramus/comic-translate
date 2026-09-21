@@ -10,6 +10,7 @@ from app.ui.dayu_widgets.message import MMessage
 from app.ui.messages import Messages
 from app.ui.commands.image import SetImageCommand, ToggleSkipImagesCommand
 from app.ui.commands.inpaint import PatchInsertCommand
+from app.ui.commands.inpaint import PatchEraseCommand
 from app.ui.commands.inpaint import PatchCommandBase
 from app.ui.commands.base import _load_patch_image_rgba
 from app.ui.commands.box import AddTextItemCommand
@@ -1376,8 +1377,67 @@ class ImageStateController:
         target_stack.push(command)
 
     def apply_inpaint_patches(self, patches):
-        command = PatchInsertCommand(self.main, patches, self.main.image_files[self.main.curr_img_idx])
+        file_path = self.main.image_files[self.main.curr_img_idx]
+
+        to_insert = []
+        for patch in patches:
+            if patch.get('kind') != 'pencil' or not self._merge_pencil_into_existing_patch(patch, file_path):
+                to_insert.append(patch)
+
+        if to_insert:
+            command = PatchInsertCommand(self.main, to_insert, file_path)
+            self.main.undo_group.activeStack().push(command)
+
+    def _merge_pencil_into_existing_patch(self, patch, file_path) -> bool:
+        """A pencil stroke drawn over a not-yet-revealed Clean patch is
+        fixing Clean's own output, not adding a permanent cosmetic layer on
+        top of it - merge it directly into that patch instead of inserting
+        a separate one, so a later Render/auto-reveal sees one consistent
+        area to reveal instead of two independently-decided patches with a
+        seam between them. A stroke used after that area's already been
+        revealed (or one that doesn't fit inside a single existing patch)
+        returns False and falls through to a normal new top-layer patch,
+        exactly like before - which is exactly what should stick permanently
+        instead of being revealed over.
+        """
+        sx, sy, sw, sh = patch['bbox']
+        sx2, sy2 = sx + sw, sy + sh
+
+        target = None
+        for prop in self.main.image_patches.get(file_path, []):
+            if prop.get('kind') in ('pencil', 'reveal_pencil') or prop.get('revealed'):
+                continue
+            px, py, pw, ph = prop['bbox']
+            if px <= sx and py <= sy and (px + pw) >= sx2 and (py + ph) >= sy2:
+                target = prop
+                break
+
+        if target is None:
+            return False
+
+        ensure_path_materialized(target['png_path'])
+        base_img = _load_patch_image_rgba(png_path=target['png_path'])
+        if base_img is None:
+            return False
+
+        px, py, pw, ph = target['bbox']
+        stroke_img = patch['image']
+        stroke_mask = stroke_img[..., 3] > 0
+        if not stroke_mask.any():
+            return False
+
+        lx1, ly1 = sx - px, sy - py
+        lx2, ly2 = lx1 + sw, ly1 + sh
+
+        new_img = base_img.copy()
+        region = new_img[ly1:ly2, lx1:lx2]
+        region[stroke_mask, :3] = stroke_img[stroke_mask, :3]
+        region[stroke_mask, 3] = 255
+        new_img[ly1:ly2, lx1:lx2] = region
+
+        command = PatchEraseCommand(self.main, [{'old_patch': target, 'new_image': new_img}], file_path)
         self.main.undo_group.activeStack().push(command)
+        return True
 
     def cleanup(self):
         """Clean up resources, including the lazy loader."""

@@ -227,6 +227,15 @@ class PatchEraseCommand(QUndoCommand, PatchCommandBase):
             new_prop['z'] = old_patch.get('z', 0.5)
             if 'kind' in old_patch:
                 new_prop['kind'] = old_patch['kind']
+            # 'revealed' marks a patch as already containing a reference
+            # reveal - auto_reveal_pages() sets it explicitly via entry
+            # (not the old patch, which never had it yet); otherwise it
+            # just carries forward unchanged (e.g. the patch eraser punching
+            # a hole in an already-revealed patch shouldn't "un-reveal" it).
+            if entry.get('revealed'):
+                new_prop['revealed'] = True
+            elif 'revealed' in old_patch:
+                new_prop['revealed'] = old_patch['revealed']
             self.new_props.append(new_prop)
 
     def _remove(self, prop):

@@ -371,7 +371,7 @@ class ToolStateMixin:
                     continue
                 new_img = img.copy()
                 new_img[mask, :3] = ref_crop[mask]
-                erased.append({'old_patch': prop, 'new_image': new_img})
+                erased.append({'old_patch': prop, 'new_image': new_img, 'revealed': True})
 
             if not erased:
                 continue
