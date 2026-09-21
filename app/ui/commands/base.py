@@ -272,14 +272,22 @@ class PatchCommandBase:
         pix  = QtGui.QPixmap.fromImage(qimg)
         item = QtWidgets.QGraphicsPixmapItem(pix)
         
+        # Each patch keeps the z-value it was assigned when first created
+        # (see PatchInsertCommand.__init__) - a plain fixed 0.5 for everyone
+        # meant that *replacing* an existing patch (auto-reveal, or the patch
+        # eraser swapping in a punched-hole version) put it back at the top
+        # of the same-z stack, ahead of anything drawn after the original
+        # (e.g. a pencil correction on top of Clean's patch, which would
+        # otherwise vanish under Clean's own patch the moment it got revealed).
+        z = properties.get('z', 0.5)
         # Handle webtoon mode with scene coordinates
         if 'scene_pos' in properties and viewer.webtoon_mode:
             scene_x, scene_y = properties['scene_pos']
             item.setPos(scene_x, scene_y)
-            item.setZValue(0.5)  # Above images but below text
+            item.setZValue(z)  # Above images but below text
         else:
             item.setPos(x, y)
-            item.setZValue(0.5)
+            item.setZValue(z)
         item.setData(PatchCommandBase.HASH_KEY, properties['hash'])
         viewer._scene.addItem(item)
         viewer._scene.update()

@@ -305,6 +305,14 @@ class ToolStateMixin:
 
             erased = []
             for prop in list(patches):
+                if prop.get('kind') in ('pencil', 'reveal_pencil'):
+                    # A manual correction, not Clean's own output - leave it
+                    # exactly as painted. Re-revealing into it independently
+                    # (its own tiny crop, its own content-mask decision) could
+                    # disagree with the surrounding, already-correctly-revealed
+                    # text and show up as a visible seam right where the user
+                    # just fixed something.
+                    continue
                 ensure_path_materialized(prop['png_path'])
                 img = _load_patch_image_rgba(png_path=prop['png_path'])
                 if img is None:

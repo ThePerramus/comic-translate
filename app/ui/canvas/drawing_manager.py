@@ -354,14 +354,23 @@ class DrawingManager:
         if base_rgb is None:
             return
 
-        patch_rgb = base_rgb[y1:y2, x1:x2].copy()
+        patch_rgb = base_rgb[y1:y2, x1:x2]
         if patch_rgb.shape[:2] != (h, w):
             return
 
         color = self.pencil_color
-        patch_rgb[mask == 255] = (color.red(), color.green(), color.blue())
+        # Real alpha, opaque only where the stroke actually landed - not a
+        # flat opaque rectangle - so tools that reason about "what's really
+        # drawn here" (the patch eraser's topmost-patch peeling, auto-reveal's
+        # patch selection) see this correction's true shape instead of its
+        # whole bounding box. Visually identical either way while nothing
+        # underneath changes, since the untouched pixels just show through.
+        patch_rgba = np.zeros((h, w, 4), dtype=np.uint8)
+        patch_rgba[..., :3] = patch_rgb
+        patch_rgba[mask == 255, :3] = (color.red(), color.green(), color.blue())
+        patch_rgba[..., 3] = np.where(mask == 255, 255, 0).astype(np.uint8)
 
-        patch = {'bbox': [x1, y1, w, h], 'image': patch_rgb}
+        patch = {'bbox': [x1, y1, w, h], 'image': patch_rgba, 'kind': 'pencil'}
         self.viewer.pencil_patch_ready.emit(patch)
 
     def set_reveal_pencil_size(self, size, scaled_size):
@@ -486,14 +495,19 @@ class DrawingManager:
         if base_rgb is None:
             return
 
-        patch_rgb = base_rgb[y1:y2, x1:x2].copy()
+        patch_rgb = base_rgb[y1:y2, x1:x2]
         if patch_rgb.shape[:2] != (h, w):
             return
 
         ref_crop = reveal_source[y1:y2, x1:x2, :3]
-        patch_rgb[mask == 255] = ref_crop[mask == 255]
+        # Real alpha, opaque only where the stroke actually landed - see the
+        # matching comment in _commit_pencil_stroke() for why.
+        patch_rgba = np.zeros((h, w, 4), dtype=np.uint8)
+        patch_rgba[..., :3] = patch_rgb
+        patch_rgba[mask == 255, :3] = ref_crop[mask == 255]
+        patch_rgba[..., 3] = np.where(mask == 255, 255, 0).astype(np.uint8)
 
-        patch = {'bbox': [x1, y1, w, h], 'image': patch_rgb}
+        patch = {'bbox': [x1, y1, w, h], 'image': patch_rgba, 'kind': 'reveal_pencil'}
         self.viewer.pencil_patch_ready.emit(patch)
 
     def set_patch_eraser_size(self, size, scaled_size):

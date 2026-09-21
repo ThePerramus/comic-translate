@@ -39,10 +39,23 @@ class PatchInsertCommand(QUndoCommand, PatchCommandBase):
             bbox_bytes = str(bbox).encode('utf-8')
             img_hash = hashlib.sha256(img_bytes + bbox_bytes).hexdigest()
 
+            # A brand-new patch gets the next z-value in this page's stacking
+            # order, so patches drawn later (e.g. a pencil touch-up on top of
+            # Clean's patch) stay on top even if an older one underneath gets
+            # replaced later (see PatchEraseCommand, which carries the old
+            # patch's own z forward instead of assigning a fresh one).
+            z_counters = getattr(ct, '_patch_z_counters', None)
+            if z_counters is None:
+                z_counters = {}
+                ct._patch_z_counters = z_counters
+            z_counters[file_path] = z_counters.get(file_path, 0) + 1
+            patch_z = 0.5 + z_counters[file_path] * 0.0001
+
             prop = {
                 'bbox': bbox,
                 'png_path': png_path,
-                'hash': img_hash
+                'hash': img_hash,
+                'z': patch_z
             }
             
             # Add webtoon mode information if present
@@ -50,7 +63,13 @@ class PatchInsertCommand(QUndoCommand, PatchCommandBase):
                 prop['scene_pos'] = patch['scene_pos']
             if 'page_index' in patch:
                 prop['page_index'] = patch['page_index']
-                
+            # Which tool produced this patch (e.g. 'pencil', 'reveal_pencil') -
+            # missing/absent means "automatic inpaint" (Clean), the historical
+            # default. auto_reveal_pages() uses this to leave manual
+            # corrections alone instead of re-processing them.
+            if 'kind' in patch:
+                prop['kind'] = patch['kind']
+
             self.properties_list.append(prop)
 
     def _register_patches(self):
@@ -75,6 +94,10 @@ class PatchInsertCommand(QUndoCommand, PatchCommandBase):
                 patch_entry['scene_pos'] = prop['scene_pos']
             if 'page_index' in prop:
                 patch_entry['page_index'] = prop['page_index']
+            if 'kind' in prop:
+                patch_entry['kind'] = prop['kind']
+            if 'z' in prop:
+                patch_entry['z'] = prop['z']
             patches_list.append(patch_entry)
 
             # only load into memory if being displayed
@@ -197,6 +220,13 @@ class PatchEraseCommand(QUndoCommand, PatchCommandBase):
                 new_prop['scene_pos'] = old_patch['scene_pos']
             if 'page_index' in old_patch:
                 new_prop['page_index'] = old_patch['page_index']
+            # Keep the replaced patch at its original stacking position -
+            # otherwise re-adding it here would make it the most-recently-
+            # added same-z item and jump to the top, ahead of anything drawn
+            # after it originally (see create_patch_item()'s comment).
+            new_prop['z'] = old_patch.get('z', 0.5)
+            if 'kind' in old_patch:
+                new_prop['kind'] = old_patch['kind']
             self.new_props.append(new_prop)
 
     def _remove(self, prop):
