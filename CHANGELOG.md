@@ -4,7 +4,7 @@ This fork (`ThePerramus/comic-translate`, branch `v2.8.8-work`, based on upstrea
 a workflow for pages that already have a translation to reuse instead of retranslating them, plus
 several general-purpose editing and lettering improvements built along the way.
 
-34 commits, 30 files touched, roughly +2,370/−90 lines relative to `v2.8.9`.
+46 commits, 32 files touched, roughly +2,710/−110 lines relative to `v2.8.9`.
 
 ## Reference-page reveal workflow
 
@@ -56,6 +56,12 @@ the LQ scan onto it, and reveals the LQ page's own pixels through the holes.
 - **Eyedropper, pencil, patch eraser** — hand tools for touching up cleaned pages, each with its
   own independently remembered brush size.
 - The patch eraser also fixes a reveal-pencil stroke that ran over the edge of a bubble.
+- **Pencil/patch layering fixes** — a pencil correction used before a reference page's first
+  reveal now merges directly into Clean's own patch(es) underneath (even when a stroke spans more
+  than one, e.g. one Clean patch per text line) instead of sitting on top as a separate layer that
+  blocked the real text; one used after a reveal still stays as a permanent top layer. Also fixed
+  the patch eraser and reveal-pencil losing each other's work through the same "opaque rectangle
+  instead of real stroke shape" root cause.
 
 ## Stability fixes
 
