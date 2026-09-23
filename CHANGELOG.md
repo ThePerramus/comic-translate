@@ -1,6 +1,7 @@
-# Changelog — This Fork
+# Changelog — Lettering Bench
 
-This fork (`ThePerramus/comic-translate`, branch `v2.8.8-work`, based on upstream `v2.8.9`) adds
+**Lettering Bench** (`ThePerramus/lettering-bench`, branch `v2.8.8-work`) is a fork of
+[Comic Translate](https://github.com/ogkalu2/comic-translate), based on upstream `v2.8.9`. It adds
 a workflow for pages that already have a translation to reuse instead of retranslating them, plus
 several general-purpose editing and lettering improvements built along the way.
 

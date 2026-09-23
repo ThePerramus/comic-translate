@@ -1,8 +1,9 @@
-# Comic Translate
+# Lettering Bench
 English | [한국어](docs/README_ko.md) | [Français](docs/README_fr.md) | [简体中文](docs/README_zh-CN.md)
 
-> This fork adds a page-reference reveal workflow plus several editing/lettering
-> improvements on top of upstream — see [CHANGELOG.md](CHANGELOG.md) for the full list.
+> A fork of [Comic Translate](https://github.com/ogkalu2/comic-translate) that adds a
+> page-reference reveal workflow plus several editing/lettering improvements on top of
+> upstream — see [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 <img src="https://i.imgur.com/QUVK6mK.png">
 
@@ -70,18 +71,13 @@ Note: Some of these also have Official English Translations
 
 ## Installation
 ### Download
-* **Desktop App**: Download and install Comic Translate for Windows and macOS from [here](https://www.comic-translate.com). 
-
-  >Ignore Smart Screen for Windows (Click More info > Run anyway). 
-
-  >For macOS, after trying to open, go to Settings > Privacy and Security > Scroll down and click Open Anyway. 
-
-  >Note: GPU acceleration is currently only available when running from source.
-
-* **Browser Extension**: Install the Comic Translate extension for Chromium-based browsers (Chrome, Edge, Brave, etc.) [here](https://www.comic-translate.com/download) to read directly on websites.
+* **Desktop App / Browser Extension**: the *original* Comic Translate project (this fork is
+  built on top of, but doesn't maintain a separate build of) publishes its own installers and
+  browser extension [here](https://www.comic-translate.com) - those don't include this fork's
+  reference-page workflow or any of the other changes in [CHANGELOG.md](CHANGELOG.md).
 
 ### From Source
-Alternatively, if you'd like to run the source code directly.
+This fork is source-only for now - run it directly from the code.
 
 Install Python 3.12. Tick "Add python.exe to PATH" during the setup.
 ```bash
@@ -98,8 +94,8 @@ https://docs.astral.sh/uv/getting-started/installation/
 
 Then, in the command line
 ```bash
-git clone https://github.com/ogkalu2/comic-translate
-cd comic-translate
+git clone https://github.com/ThePerramus/lettering-bench
+cd lettering-bench
 uv init --python 3.12
 ```
 and install the requirements
@@ -107,7 +103,7 @@ and install the requirements
 uv add -r requirements.txt --compile-bytecode
 ```
 
-To Update, run this in the comic-translate folder
+To Update, run this in the lettering-bench folder
 ```bash
 git pull
 uv init --python 3.12 (Note: only run this line if you did not use uv for the first time installation)
@@ -120,7 +116,7 @@ uv pip install onnxruntime-gpu
 ```
 
 ## Usage
-In the comic-translate directory, run
+In the lettering-bench directory, run
 ```bash
 uv run comic.py
 ```
